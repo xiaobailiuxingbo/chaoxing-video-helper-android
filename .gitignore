@@ -1,0 +1,34 @@
+# Generated build output and signed packages
+/build/
+*.apk
+*.idsig
+*.class
+*.dex
+*.jar
+
+# Signing keys and local credentials
+*.keystore
+*.jks
+*.p12
+*.pem
+.env
+.env.*
+!.env.example
+local.properties
+secrets.properties
+
+# Device screenshots and ad-hoc diagnostics
+*.png
+*.jpg
+*.jpeg
+*.log
+/access-*.xml
+/install-*.xml
+/verified-run.txt
+
+# Local editor files
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
