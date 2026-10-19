@@ -125,15 +125,15 @@ public final class MainActivity extends Activity {
         CheckBox next = new CheckBox(this); next.setText("视频播完后继续下一章节"); next.setTextColor(ink);
         next.setChecked(AppState.prefs(this).getBoolean("next", true)); add(options, next, 4);
         next.setOnCheckedChangeListener((b, checked) -> AppState.prefs(this).edit().putBoolean("next", checked).apply());
-        add(options, text("自动重试最多三次；章节作业和考试保持未作答。真正的人脸验证会停下等待本人处理。单次最多运行六小时。", 12, muted, false), 10);
-        Button ai=button("DeepSeek · 视频弹题设置",false);add(options,ai,14);
+        add(options, text("自动重试最多三次。支持配置章节测验；真正的人脸验证会停下等待本人处理。单次最多运行六小时。", 12, muted, false), 10);
+        Button ai=button("DeepSeek · 弹题与测验设置",false);add(options,ai,14);
         ai.setTag("ai_settings");
         ai.setOnClickListener(v->showAiSettings());
-        add(options,text("支持文字单选弹题；无法读取、其他题型或模型不确定时暂停。需要先填写 API Key 并开启自动答题。",12,muted,false),8);
+        add(options,text("支持视频文字单选弹题、章节测验文字单选和判断题；无法读取或模型不确定时暂停。",12,muted,false),8);
 
         LinearLayout history = card(page); add(history, text("最近操作", 17, ink, true), 0);
         log = text("尚无记录", 12, muted, false); add(history, log, 10);
-        add(page, text("手机独立运行。启用 AI 后，仅将弹题的题干和选项发送到 DeepSeek，按 API 用量计费；不发送人脸画面。普通播放辅助无需调用 AI。", 12, muted, false), 20);
+        add(page, text("手机独立运行。启用 AI 后，仅将题目的题干和选项发送到 DeepSeek，按 API 用量计费；不发送人脸画面。普通播放辅助无需调用 AI。", 12, muted, false), 20);
     }
     private void showAiSettings() {
         SharedPreferences p=AppState.prefs(this);
@@ -155,15 +155,17 @@ public final class MainActivity extends Activity {
         add(form,text("课程名称（打开学习通课程首页可自动识别）",13,ink,true),14);
         EditText courseName=new EditText(this);courseName.setSingleLine(true);courseName.setTextSize(13);
         courseName.setText(p.getString("course_name",""));courseName.setHint("未识别时可手动填写课程名");add(form,courseName,4);
-        CheckBox cache=new CheckBox(this);cache.setText("按课程缓存已通过的弹题答案");cache.setTextColor(ink);
+        CheckBox cache=new CheckBox(this);cache.setText("按课程缓存已确认正确的题目答案");cache.setTextColor(ink);
         cache.setChecked(p.getBoolean("cache_enabled",true));add(form,cache,8);
         Button clearCache=button("清除本课程缓存",false);clearCache.setTag("clear_course_cache");add(form,clearCache,8);
         clearCache.setOnClickListener(v->{String name=courseName.getText().toString().trim();if(name.isEmpty()){courseName.setError("请先确认课程名称");return;}
             AppState.cache(this).clear(name);Toast.makeText(this,"已清除该课程缓存",Toast.LENGTH_SHORT).show();render();});
-        CheckBox enabled=new CheckBox(this);enabled.setText("自动选择并提交视频中途弹题");enabled.setTextColor(ink);
+        CheckBox enabled=new CheckBox(this);enabled.setText("启用 AI 自动选择与提交");enabled.setTextColor(ink);
         enabled.setChecked(p.getBoolean("quiz_enabled",false));add(form,enabled,12);
-        add(form,text("文字单选题优先使用本课程缓存，按选项文字匹配。读到明确答错反馈会作废缓存并重新请求，最多纠错两次。每次开始最多 20 次自动 API 请求。保存后需点击“开始辅助”。",12,muted,false),8);
-        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("DeepSeek 视频弹题")
+        CheckBox chapterEnabled=new CheckBox(this);chapterEnabled.setText("同时处理章节测验（单选、判断）");chapterEnabled.setTextColor(ink);chapterEnabled.setTag("chapter_quiz_enabled");
+        chapterEnabled.setChecked(p.getBoolean("chapter_quiz_enabled",true));add(form,chapterEnabled,8);
+        add(form,text("优先使用本课程缓存，按选项文字匹配。弹题明确判错最多纠错两次；测验从结果页保存已确认正确的答案、作废错误选项。每次开始共用 20 次自动 API 请求上限。保存后需点击“开始辅助”。",12,muted,false),8);
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("DeepSeek 弹题与测验")
             .setView(scroll).setPositiveButton("保存",null).setNegativeButton("取消",null).setNeutralButton("清除 Key",null).create();
         aiDialog=dialog;
         dialog.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
@@ -204,7 +206,7 @@ public final class MainActivity extends Activity {
                     if(!raw.isEmpty())KeyVault.save(this,raw);
                     if(p.getBoolean("running",false))AppState.pause(this);
                     AppState.setCourse(this,name);
-                    p.edit().putBoolean("quiz_enabled",enabled.isChecked()).putBoolean("cache_enabled",cache.isChecked()).putString("quiz_model",models[model.getSelectedItemPosition()]).apply();
+                    p.edit().putBoolean("quiz_enabled",enabled.isChecked()).putBoolean("cache_enabled",cache.isChecked()).putBoolean("chapter_quiz_enabled",chapterEnabled.isChecked()).putString("quiz_model",models[model.getSelectedItemPosition()]).apply();
                     secret.setText("");dialog.dismiss();
                     Toast.makeText(this,"已保存，请点击开始辅助后切回学习通",Toast.LENGTH_LONG).show();render();
                 } catch(IllegalArgumentException e){secret.setError("API Key 格式不正确，请检查");}

@@ -32,6 +32,8 @@ public final class PlaybackService extends AccessibilityService {
     private int gestureFailures, unknownCount;
     private final java.util.concurrent.ExecutorService network = java.util.concurrent.Executors.newSingleThreadExecutor();
     private DeepSeekClient quizClient;
+    private DeepSeekClient chapterClient;
+    private ChapterRun chapterRun=new ChapterRun();
     private DeepSeekClient.Answer quizAnswer;
     private String quizFingerprint = "";
     private long quizStableAt, quizSubmittedAt, quizGeneration;
@@ -88,6 +90,7 @@ public final class PlaybackService extends AccessibilityService {
         SharedPreferences p = AppState.prefs(this);
         AutomationEngine.Config c = new AutomationEngine.Config();
         c.rate = p.getString("rate", "1"); c.consent = p.getBoolean("consent", true); c.next = p.getBoolean("next", true);
+        c.chapterQuiz=p.getBoolean("chapter_quiz_enabled",true) && p.getBoolean("quiz_enabled",false);
         return c;
     }
     private void tick() {
@@ -119,8 +122,19 @@ public final class PlaybackService extends AccessibilityService {
         try {
             collect(root, live, snapshot);
             observeCourse(snapshot);
+            cacheChapterResult(snapshot);
             AutomationEngine.Config c = config();
+            String chapterName="";
+            for(AutomationEngine.Node n:snapshot)if(n.visible() && n.id.equals("com.chaoxing.mobile:id/tv_chapter_name"))chapterName=n.text;
+            String doneKey=p.getString("course_name","")+":"+chapterName;
+            if(doneKey.equals(p.getString("chapter_quiz_done","")))c.chapterQuiz=false;
+            if(!chapterName.isEmpty() && !chapterRun.chapter.isEmpty() && !chapterName.equals(chapterRun.chapter)) {
+                if(chapterClient!=null)chapterClient.cancel();chapterClient=null;chapterRun=new ChapterRun();
+            }
             AutomationEngine.Action a = engine.plan(snapshot, c, System.currentTimeMillis());
+            AutomationEngine.Action confirmation=chapterRun.submitted && !chapterRun.confirmed?ChapterRun.confirmation(snapshot):null;
+            if(confirmation!=null)a=confirmation;
+            else if(a.kind.equals("chapter_quiz"))a=chapterAction(ChapterQuiz.read(snapshot),snapshot,doneKey);
             if(quizQuestion!=null && quizSubmittedAt>0) {
                 int feedback=quizSignal!=0?quizSignal:QuizFeedback.detect(snapshot);
                 if(feedback<0) {
@@ -163,18 +177,19 @@ public final class PlaybackService extends AccessibilityService {
                 else failed();
                 return;
             }
-            if (!a.gestureOnly && !a.kind.equals("scroll_next") && a.nodeIndex >= 0 && a.nodeIndex < live.size()) {
+            if (!a.gestureOnly && !a.kind.equals("scroll_next") && !a.kind.equals("chapter_scroll") && a.nodeIndex >= 0 && a.nodeIndex < live.size()) {
                 AccessibilityNodeInfo target = live.get(a.nodeIndex);
                 if (target.isClickable() && target.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
                     completed(a, c); return;
                 }
             }
             Path path = new Path(); path.moveTo(a.x, a.y);
-            if (a.kind.equals("scroll_next")) path.lineTo(a.x2, a.y2);
+            boolean scrolling=a.kind.equals("scroll_next") || a.kind.equals("chapter_scroll");
+            if (scrolling) path.lineTo(a.x2, a.y2);
             gestureBusy = true;
             final AutomationEngine.Action gestureAction=a;
             GestureDescription gesture = new GestureDescription.Builder().addStroke(
-                new GestureDescription.StrokeDescription(path, 0, a.kind.equals("scroll_next") ? 350 : 80)).build();
+                new GestureDescription.StrokeDescription(path, 0, a.kind.equals("chapter_scroll")?550:scrolling?350:80)).build();
             boolean dispatched = dispatchGesture(gesture, new GestureResultCallback() {
                 @Override public void onCompleted(GestureDescription d) { gestureBusy = false; completed(gestureAction, c); }
                 @Override public void onCancelled(GestureDescription d) { gestureBusy = false; failed(); }
@@ -206,6 +221,7 @@ public final class PlaybackService extends AccessibilityService {
         }
     }
     private void completed(AutomationEngine.Action a, AutomationEngine.Config c) {
+        chapterRun.performed(a,SystemClock.elapsedRealtime());
         if (a.kind.equals("quiz_select")) quizSelected=true;
         if (a.kind.equals("quiz_submit")) {
             quizSubmittedAt=SystemClock.elapsedRealtime();
@@ -231,6 +247,7 @@ public final class PlaybackService extends AccessibilityService {
     public void cancelQuizWork() {
         quizGeneration++; handler.removeCallbacks(quizTimeout);
         if(quizClient!=null) quizClient.cancel();
+        if(chapterClient!=null)chapterClient.cancel();chapterClient=null;chapterRun=new ChapterRun();
         quizClient=null; quizRequestBusy=false; quizAnswer=null; quizSelected=false;
         quizFingerprint=""; quizSubmittedAt=0; quizStableAt=0;
         quizReadFailedAt=0;
@@ -241,7 +258,7 @@ public final class PlaybackService extends AccessibilityService {
         if(root==null)return;
         if(!"com.chaoxing.mobile".contentEquals(root.getPackageName()==null?"":root.getPackageName())){root.recycle();return;}
         List<AccessibilityNodeInfo> live=new ArrayList<>();List<AutomationEngine.Node> nodes=new ArrayList<>();
-        try{collect(root,live,nodes);observeCourse(nodes);}catch(RuntimeException ignored){}
+        try{collect(root,live,nodes);observeCourse(nodes);cacheChapterResult(nodes);}catch(RuntimeException ignored){}
         finally{for(AccessibilityNodeInfo n:live)n.recycle();}
     }
     private void observeCourse(List<AutomationEngine.Node> nodes) {
@@ -249,6 +266,24 @@ public final class PlaybackService extends AccessibilityService {
         if(!name.isEmpty() && !name.equals(AppState.prefs(this).getString("course_name",""))) {
             AppState.setCourse(this,name);engine=new AutomationEngine();session=-1;
         }
+    }
+    private void cacheChapterResult(List<AutomationEngine.Node> nodes) {
+        SharedPreferences p=AppState.prefs(this);
+        if(!p.getBoolean("cache_enabled",true) || !p.getBoolean("chapter_quiz_enabled",true))return;
+        String course=p.getString("course_name","");if(course.isEmpty())return;
+        ChapterResult result=ChapterResult.read(nodes);if(result==null || result.entries.isEmpty())return;
+        StringBuilder identity=new StringBuilder(course).append(result.chapter).append(result.score);
+        for(ChapterResult.Entry e:result.entries)identity.append(QuizKey.question(e.question)).append(e.answer).append(e.correctAnswer).append(e.correct).append(e.wrong);
+        String hash=QuizKey.hash(identity.toString());if(hash.equals(p.getString("chapter_result_cached","")))return;
+        int accepted=0,rejected=0;
+        QuizCache cache=AppState.cache(this);
+        for(ChapterResult.Entry e:result.entries) {
+            if(e.wrong){cache.reject(course,e.question,e.answer);rejected++;}
+            if(e.correct){cache.accept(course,e.question,e.answer);accepted++;}
+            else if(!e.correctAnswer.isEmpty()){cache.accept(course,e.question,e.correctAnswer);accepted++;}
+        }
+        p.edit().putString("chapter_result_cached",hash).apply();
+        AppState.log(this,"测验结果 "+result.score+" 分：缓存已确认正确答案 "+accepted+" 题，作废错误答案 "+rejected+" 题");
     }
     private void acceptQuizAnswer() {
         if(quizQuestion==null || quizAnswer==null || quizAccepted)return;
@@ -290,6 +325,54 @@ public final class PlaybackService extends AccessibilityService {
     }
     private AutomationEngine.Action quizWait(String message) { return new AutomationEngine.Action("wait",message); }
     private AutomationEngine.Action quizStop(String message) { return new AutomationEngine.Action("stop",message); }
+    private AutomationEngine.Action chapterAction(ChapterQuiz page,List<AutomationEngine.Node> nodes,String doneKey) {
+        if(page==null)return quizWait("等待章节测验网页");
+        AutomationEngine.Action action=chapterRun.plan(page,nodes,SystemClock.elapsedRealtime());
+        if(action.kind.equals("chapter_done")) {
+            AppState.prefs(this).edit().putString("chapter_quiz_done",doneKey).apply();
+            AppState.log(this,"已确认当前章节测验完成");
+            return quizWait("章节测验已完成，准备继续视频或下一节");
+        }
+        if(!action.kind.equals("chapter_request"))return action;
+        SharedPreferences p=AppState.prefs(this);
+        final VideoQuiz q=chapterRun.requested;
+        String course=p.getString("course_name","");
+        if(p.getBoolean("cache_enabled",true)) {
+            DeepSeekClient.Answer cached=AppState.cache(this).find(course,q);
+            if(cached!=null){chapterRun.answer(q,cached);AppState.log(this,"命中章节测验课程缓存，第 "+q.number+" 题："+cached.label+"，不调用 API");return quizWait("已读取测验缓存，准备选择");}
+        }
+        if(!KeyVault.exists(this))return quizStop("章节测验需要先保存 DeepSeek API Key");
+        int count=p.getInt("quiz_requests",0);if(count>=20)return quizStop("本次自动 API 请求已达到二十次，请检查后重新开始");
+        final String key;
+        try{key=KeyVault.read(this);}catch(Exception e){return quizStop("无法读取本机 API Key，请重新保存");}
+        String model=p.getString("quiz_model","deepseek-flash");
+        if(!model.equals("deepseek-flash") && !model.equals("deepseek-v4-pro"))return quizStop("请重新选择 DeepSeek 模型");
+        p.edit().putInt("quiz_requests",count+1).apply();
+        final ChapterRun target=chapterRun;target.busy=true;
+        final long generation=quizGeneration,requestSession=session;
+        final DeepSeekClient client=new DeepSeekClient();chapterClient=client;
+        final java.util.List<String> rejected=AppState.cache(this).rejected(course,q);
+        AppState.log(this,"请求 DeepSeek：章节测验第 "+q.number+" 题（本次第 "+(count+1)+" 次）");refreshNotification();
+        final Runnable timeout=()->{if(chapterClient==client)stopWith("章节测验 AI 请求超时，请检查网络");};
+        handler.postDelayed(timeout,45000);
+        network.execute(()->{
+            DeepSeekClient.Answer result=null;String error=null;
+            try{result=client.solve(q,key,model,rejected);}
+            catch(java.io.IOException e){error="章节测验 AI 网络失败或超时";}
+            catch(org.json.JSONException e){error="章节测验模型响应格式不正确";}
+            catch(Exception e){error=e.getMessage()==null?"章节测验 AI 请求失败":e.getMessage();}
+            final DeepSeekClient.Answer value=result;final String problem=error;
+            handler.post(()->{
+                handler.removeCallbacks(timeout);
+                if(generation!=quizGeneration || chapterRun!=target || AppState.prefs(this).getLong("session",0)!=requestSession || !AppState.prefs(this).getBoolean("running",false))return;
+                chapterClient=null;target.busy=false;
+                if(problem!=null){stopWith(problem);return;}
+                target.answer(q,value);AppState.log(this,"DeepSeek 测验第 "+q.number+" 题建议 "+value.label+"："+value.reason);
+                handler.removeCallbacks(loop);handler.post(loop);
+            });
+        });
+        return quizWait("DeepSeek 正在判断章节测验");
+    }
     private AutomationEngine.Action quizAction(VideoQuiz q) {
         SharedPreferences p=AppState.prefs(this);
         if(q==null) return quizStop("弹题页面正在变化，请本人检查");
@@ -408,6 +491,9 @@ public final class PlaybackService extends AccessibilityService {
                 }
                 VideoQuiz question=VideoQuiz.read(nodes);
                 if(question!=null){out.println("quiz_error="+question.error);out.println("quiz_stem="+question.stem);for(VideoQuiz.Option o:question.options)out.println("quiz_option="+o.label+":"+o.text+" tap="+o.x+","+o.y);}
+                ChapterResult result=ChapterResult.read(nodes);
+                if(result!=null){int hits=0;for(ChapterResult.Entry entry:result.entries)if(AppState.cache(this).find(p.getString("course_name",""),entry.question)!=null)hits++;
+                    out.println("chapter_result_cache_hits="+hits+"/"+result.entries.size());}
             } finally { for (AccessibilityNodeInfo n : live) n.recycle(); }
         }
     }

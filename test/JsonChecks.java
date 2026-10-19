@@ -69,6 +69,12 @@ public class JsonChecks {
         cache.accept("Course B",q,"B");cache.clear("Course A");
         expect(cache.count("Course A")==0 && cache.find("Course B",q)!=null,"clear only removes the selected course");
         records.replaceAll((key,value)->"malformed data");expect(cache.find("Course B",q)==null,"damaged cache entry ignored safely");
+        q.context="chapter";q.type="判断题";q.options.get(0).text="对";q.options.get(1).text="错";
+        cache.accept("Course C",q,"B");expect(new QuizCache(storage).find("Course C",q).label.equals("B"),"chapter true false cache survives a new instance");
+        q.context="video";expect(cache.find("Course C",q)==null,"chapter cache cannot leak into video popup");q.context="chapter";
+        q.options.get(0).text="错";q.options.get(1).text="对";
+        expect(cache.find("Course C",q).label.equals("A"),"chapter true false remaps by answer text when order reverses");
+        cache.reject("Course C",q,"A");expect(cache.find("Course C",q)==null,"wrong chapter answer is invalidated persistently");
         System.out.println("PASS: "+checks+" Android JSON and cache checks (no API requests)");
     }
 }

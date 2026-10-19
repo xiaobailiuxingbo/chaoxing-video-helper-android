@@ -20,6 +20,7 @@ public final class QuizKey {
     private static void append(StringBuilder out,String value){out.append(value.length()).append(':').append(value);}
     public static String question(VideoQuiz question) {
         StringBuilder identity=new StringBuilder();append(identity,normalize(question.type));append(identity,normalize(question.stem));
+        if(!question.context.equals("video"))append(identity,question.context);
         List<String> options=new ArrayList<>();for(VideoQuiz.Option o:question.options)options.add(normalize(o.text));Collections.sort(options);
         for(String option:options)append(identity,option);return hash(identity.toString());
     }

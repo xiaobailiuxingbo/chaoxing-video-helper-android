@@ -11,9 +11,11 @@ public final class VideoQuiz {
     public static final class Option {
         public String label, text;
         public int x, y;
+        public AutomationEngine.Node node;
+        public boolean visible=true;
         Option(String label, String text, int x, int y) { this.label=label; this.text=text; this.x=x; this.y=y; }
     }
-    public String type="", stem="", fingerprint="", error="";
+    public String type="", stem="", fingerprint="", error="", context="video", number="";
     public final List<Option> options = new ArrayList<>();
     public final java.util.Set<Integer> contentNodes = new java.util.HashSet<>();
     public AutomationEngine.Node submit;

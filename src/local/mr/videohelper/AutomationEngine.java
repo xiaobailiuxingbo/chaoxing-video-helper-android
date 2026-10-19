@@ -13,7 +13,7 @@ public final class AutomationEngine {
     }
     public static final class Config {
         public String rate = "1";
-        public boolean consent = true, next = true;
+        public boolean consent = true, next = true, chapterQuiz;
     }
     public static final class Action {
         public final String kind, message;
@@ -33,6 +33,9 @@ public final class AutomationEngine {
     private int consentStage, webFocus, scrollCount, previousSecond = -1;
     private String speedApplied = "";
     private long speedPending, lastReveal;
+    private String nextState="";
+    private int nextAttempts;
+    private long nextRequestedAt;
     private List<Node> nodes;
     private Config config;
     private long now;
@@ -46,8 +49,9 @@ public final class AutomationEngine {
         return result;
     }
     private Node id(String value) {
-        for (Node n : nodes) if (n.id.equals(value) || n.id.equals("com.chaoxing.mobile:id/" + value)) return n;
-        return null;
+        Node hidden=null;
+        for (Node n : nodes) if (n.id.equals(value) || n.id.equals("com.chaoxing.mobile:id/" + value)) {if(n.visible())return n;hidden=n;}
+        return hidden;
     }
     private Node text(String value) { for (Node n : nodes) if (n.text.equals(value)) return n; return null; }
     private boolean contains(String value) { for (Node n : nodes) if (n.text.contains(value)) return true; return false; }
@@ -61,7 +65,7 @@ public final class AutomationEngine {
         return a;
     }
     private boolean completed() { return !completedTitle.isEmpty() && now >= completedAt && now - completedAt < 600000; }
-    private Node web() { for (Node n : nodes) if (n.type.equals("android.webkit.WebView") && n.visible()) return n; return null; }
+    private Node web() { return ChapterQuiz.activeWeb(nodes); }
     private boolean inWeb(Node n) {
         for (int i = 0; n != null && i < nodes.size(); i++) {
             if (n.type.equals("android.webkit.WebView")) return true;
@@ -128,7 +132,9 @@ public final class AutomationEngine {
             if (n.text.equals("登录") || n.text.equals("重新登录") || n.text.equals("账号登录") || n.text.equals("密码登录")) return stop("请重新登录学习通");
         }
         if (VideoQuiz.present(nodes)) return new Action("video_quiz", "检测到视频中途弹题");
+        if(c.chapterQuiz && ChapterQuiz.selected(nodes))return new Action("chapter_quiz","检测到当前章节测验");
         Node message = id("tvMessage");
+        if(message!=null && message.text.contains("测验还未提交") && message.text.contains("保存或提交"))return stop("当前测验尚未保存或提交，请先处理未完成题目");
         if (message != null && message.text.contains("当前章节还有任务点未完成，是否去完成")) {
             Node skip = id("btnCancel");
             if (completed() && skip != null && skip.text.equals("下一章节")) return tap("skip_tasks", skip, "保留测验未作答，进入下一章节");
@@ -197,7 +203,14 @@ public final class AutomationEngine {
             if (!completedTitle.isEmpty() && (!currentTitle.equals(completedTitle) || !completed())) {
                 completedTitle = ""; completedAt = 0;
             }
-            Node view = web(), next = id("nextChapter"), play = videoPlay();
+            Node view = web(), next = ChapterQuiz.scoped(nodes,view,"nextChapter"), play = videoPlay();
+            String currentState=currentTitle+":"+(ChapterQuiz.selected(nodes)?"quiz":"video");
+            if(!currentState.equals(nextState)){nextState=currentState;nextAttempts=0;scrollCount=0;nextRequestedAt=0;}
+            if(c.next && videoTab(true)!=null && view!=null && !completed()) {
+                for(Node n:nodes)if(n.text.equals("任务点已完成") && ChapterQuiz.belongs(n,view,nodes)) {
+                    completedTitle=currentTitle;completedAt=now;observation="平台显示当前视频任务点已完成";break;
+                }
+            }
             if (playPending) {
                 if (playPlayerSeen) return stop("播放器已返回章节页，尚未确认播放，请检查当前视频");
                 if (now - playRequestedAt < 5000) return waitFor("已发送播放触摸，等待播放器打开");
@@ -214,17 +227,23 @@ public final class AutomationEngine {
             }
             webFocus = 0;
             if (completed()) {
+                if(c.chapterQuiz && !ChapterQuiz.selected(nodes)) {
+                    for(Node tab:nodes)if(tab.visible() && tab.id.equals("com.chaoxing.mobile:id/tv_title") && tab.text.contains("章节测验"))return tap("chapter_tab",tab,"视频播完，进入章节测验");
+                }
+                if(nextRequestedAt>0 && now-nextRequestedAt<3500)return waitFor("已触摸下一节，等待页面切换");
+                if(nextAttempts>=3)return stop("三次触摸下一节后页面未切换，请检查");
                 if (next == null) return stop("没有找到下一节，已停止");
                 if (!next.visible()) {
                     if (view == null || scrollCount >= 6) return stop("下一节按钮不可见，请人工检查");
-                    Action a = new Action("scroll_next", "滚动到下一节；测验保持未作答");
+                    Action a = new Action("scroll_next", "滚动当前标签页查找下一节");
                     a.x = view.left + (view.right - view.left) / 5;
                     a.y = view.bottom - (view.bottom - view.top) / 8;
                     a.x2 = a.x; a.y2 = view.top + (view.bottom - view.top) / 5; a.delay = 850;
                     return a;
                 }
                 Action a = tap("next", next, "进入下一节");
-                Node note = id("writeNotes");
+                a.gestureOnly=true;
+                Node note = ChapterQuiz.scoped(nodes,view,"writeNotes");
                 if (note != null && a.x >= note.left && a.x <= note.right && a.y >= note.top && a.y <= note.bottom) {
                     if (note.left - next.left >= 12) a.x = (next.left + note.left) / 2;
                     else if (next.right - note.right >= 12) a.x = (next.right + note.right) / 2;
@@ -255,7 +274,7 @@ public final class AutomationEngine {
         else if (a.kind.equals("retry")) retries++;
         else if (a.kind.equals("focus_web")) webFocus++;
         else if (a.kind.equals("scroll_next")) scrollCount++;
-        else if (a.kind.equals("next")) scrollCount = 0;
+        else if (a.kind.equals("next")) {scrollCount = 0;nextAttempts++;nextRequestedAt=wallTime;}
         else if (a.kind.equals("speed_open")) speedPending = wallTime;
         else if (a.kind.equals("speed_choice")) speedDenied(c.rate);
         else if (a.kind.equals("reveal")) lastReveal = wallTime;

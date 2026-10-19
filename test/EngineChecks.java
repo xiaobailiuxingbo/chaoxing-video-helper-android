@@ -3,6 +3,10 @@ import local.mr.videohelper.VideoQuiz;
 import local.mr.videohelper.CourseContext;
 import local.mr.videohelper.QuizKey;
 import local.mr.videohelper.QuizFeedback;
+import local.mr.videohelper.ChapterQuiz;
+import local.mr.videohelper.ChapterRun;
+import local.mr.videohelper.DeepSeekClient;
+import local.mr.videohelper.ChapterResult;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
@@ -28,10 +32,12 @@ public class EngineChecks {
         f.setFeature("http://apache.org/xml/features/disallow-doctype-decl",true);
         NodeList input=f.newDocumentBuilder().parse(new File(path)).getElementsByTagName("node");
         List<AutomationEngine.Node> out=new ArrayList<>();
+        java.util.Map<org.w3c.dom.Node,Integer> parents=new java.util.HashMap<>();
         for(int i=0;i<input.getLength();i++) {
             Element e=(Element)input.item(i); AutomationEngine.Node v=n(e.getAttribute("text"),e.getAttribute("resource-id"),e.getAttribute("bounds"));
             v.pkg=e.getAttribute("package");v.desc=e.getAttribute("content-desc");v.type=e.getAttribute("class");
-            v.clickable="true".equals(e.getAttribute("clickable"));v.selected="true".equals(e.getAttribute("selected"));v.index=out.size();out.add(v);
+            v.clickable="true".equals(e.getAttribute("clickable"));v.selected="true".equals(e.getAttribute("selected"));v.index=out.size();
+            v.parentIndex=parents.getOrDefault(e.getParentNode(),-1);parents.put(e,v.index);out.add(v);
         }
         return out;
     }
@@ -181,6 +187,59 @@ public class EngineChecks {
         a=e.plan(part,c,NOW+1000);e.performed(a,c,NOW+1000);
         expect(e.completedTitle.equals("3.1何为音乐产业？"),"completion uses source chapter rather than suffixed video title");
         expect(e.plan(chapterPlay,c,NOW+2000).kind.equals("next"),"suffixed video does not cause replay of same chapter");
+        List<AutomationEngine.Node> chapterNodes=quizFixture(args[0]+"/chapter-quiz.txt");
+        ChapterQuiz page=ChapterQuiz.read(chapterNodes);
+        expect(page!=null && page.error.isEmpty() && page.questions.size()==4,"chapter form includes four questions with offscreen text");
+        expect(page.questions.get(2).type.equals("判断题") && page.questions.get(2).option("B").text.equals("错"),"true false uses actual option text");
+        expect(page.questions.get(0).context.equals("chapter"),"chapter and video cache namespaces are separate");
+        expect(ChapterQuiz.scoped(chapterNodes,page.web,"nextChapter").index==154,"active next button skips hidden video tab duplicate");
+        c.chapterQuiz=true;expect(new AutomationEngine().plan(chapterNodes,c,NOW).kind.equals("chapter_quiz"),"enabled chapter test takes precedence over switching back to video");c.chapterQuiz=false;
+        e=new AutomationEngine();e.completedTitle=AutomationEngine.normalize(page.chapter);e.completedAt=NOW;
+        a=e.plan(chapterNodes,c,NOW+500);expect(a.kind.equals("scroll_next"),"scroll targets current test tab next button");
+        AutomationEngine.Node currentNext=chapterNodes.get(154);currentNext.top=2300;currentNext.bottom=2400;currentNext.onScreen=true;
+        a=e.plan(chapterNodes,c,NOW+1000);expect(a.kind.equals("next") && a.gestureOnly && a.x>0,"visible active button selected instead of hidden duplicate");
+        e.performed(a,c,NOW+1000);expect(e.plan(chapterNodes,c,NOW+1500).kind.equals("wait"),"next touch waits for actual page transition");
+        ChapterRun run=new ChapterRun();a=run.plan(page,chapterNodes,NOW);
+        expect(a.kind.equals("chapter_request") && run.requested.number.equals("1"),"chapter requests its first unanswered question");
+        VideoQuiz firstQuestion=run.requested;run.answer(firstQuestion,new DeepSeekClient.Answer("B","test"));
+        a=run.plan(page,chapterNodes,NOW+1000);expect(a.kind.equals("chapter_select") && a.x==136,"single choice selected using current screen location");
+        run.performed(a,NOW+1000);a=run.plan(page,chapterNodes,NOW+2000);
+        expect(a.kind.equals("chapter_request") && run.requested.number.equals("2"),"selected first question is not clicked again");
+        run.answer(run.requested,new DeepSeekClient.Answer("A","test"));a=run.plan(page,chapterNodes,NOW+3000);
+        expect(a.kind.equals("chapter_scroll") && a.y>a.y2 && a.y-a.y2<600,"partially clipped option scrolls gently into view");
+        for(int i=0;i<24;i++)run.performed(a,NOW+3000+i);
+        expect(run.plan(page,chapterNodes,NOW+5000).kind.equals("stop"),"unresponsive chapter scrolling is bounded");
+        run=new ChapterRun();
+        for(VideoQuiz question:page.questions){run.answer(question,new DeepSeekClient.Answer("A","test"));for(VideoQuiz.Option option:question.options){option.visible=true;option.y=1500;}}
+        for(int i=0;i<4;i++){a=run.plan(page,chapterNodes,NOW+i*1000);expect(a.kind.equals("chapter_select"),"each known answer selected before submit "+i);run.performed(a,NOW+i*1000);}
+        expect(run.plan(page,chapterNodes,NOW+4500).kind.equals("chapter_scroll"),"offscreen submit requires scrolling");
+        page.submit.top=2300;page.submit.bottom=2420;page.submit.onScreen=true;
+        a=run.plan(page,chapterNodes,NOW+5000);expect(a.kind.equals("chapter_submit"),"submit only after all questions selected");run.performed(a,NOW+5000);
+        expect(run.plan(page,chapterNodes,NOW+5500).kind.equals("wait"),"submitted form waits for judging");
+        expect(run.plan(page,chapterNodes,NOW+14000).kind.equals("stop"),"no endless submission when feedback missing");
+        List<AutomationEngine.Node> confirm=list(n("确定要提交当前作业吗？","com.chaoxing.mobile:id/tvMessage","[100,100][1000,600]"),n("确定","com.chaoxing.mobile:id/btnOk","[600,600][1000,800]"));
+        expect(ChapterRun.confirmation(confirm)!=null,"known submit confirmation accepted");confirm.get(0).text="是否删除课程？";
+        expect(ChapterRun.confirmation(confirm)==null,"unrelated confirmation never accepted");
+        chapterNodes=quizFixture(args[0]+"/chapter-quiz.txt");chapterNodes.get(93).text="[多选题]";
+        expect(!ChapterQuiz.read(chapterNodes).error.isEmpty(),"unsupported test type blocks entire submission");
+        chapterNodes=quizFixture(args[0]+"/chapter-quiz.txt");chapterNodes.get(101).type="android.widget.ImageView";
+        expect(!ChapterQuiz.read(chapterNodes).error.isEmpty(),"media options cannot be silently omitted");
+        List<AutomationEngine.Node> resultNodes=quizFixture(args[0]+"/chapter-result.txt");
+        ChapterResult scored=ChapterResult.read(resultNodes);
+        expect(scored!=null && scored.entries.size()==4 && scored.score.equals("100"),"submitted score page contains all four answers");
+        ChapterQuiz original=ChapterQuiz.read(quizFixture(args[0]+"/chapter-quiz.txt"));
+        for(int i=0;i<4;i++) {
+            expect(scored.entries.get(i).correct,"full score confirms each answer "+i);
+            expect(QuizKey.question(scored.entries.get(i).question).equals(QuizKey.question(original.questions.get(i))),"result and editable question share stable cache key "+i);
+        }
+        expect(scored.entries.get(2).answer.equals("B"),"true false result text converted to cached answer text");
+        for(AutomationEngine.Node node:resultNodes)if(node.text.equals("本次得分: 100"))node.text="本次得分: 75";
+        expect(!ChapterResult.read(resultNodes).entries.get(0).correct,"partial total score cannot confirm individual answers");
+        for(AutomationEngine.Node node:resultNodes)if(node.text.equals("得分：25.0分")){node.text="得分：0.0分";break;}
+        expect(ChapterResult.read(resultNodes).entries.get(0).wrong,"explicit zero score invalidates the submitted choice");
+        expect(ChapterResult.read(quizFixture(args[0]+"/chapter-quiz.txt"))==null,"an unsubmitted form cannot populate correct answer cache");
+        AutomationEngine.Action unsaved=new AutomationEngine().plan(list(n("本节测验还未提交，请先保存或提交","com.chaoxing.mobile:id/tvMessage","[100,100][1000,600]")),c,NOW);
+        expect(unsaved.kind.equals("stop") && unsaved.message.contains("尚未保存或提交"),"real unsaved-test block is distinguished from a missing next button");
         System.out.println("PASS: "+checks+" Android UI decision checks");
     }
 }
