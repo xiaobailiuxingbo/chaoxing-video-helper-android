@@ -1,5 +1,8 @@
 import local.mr.videohelper.AutomationEngine;
 import local.mr.videohelper.VideoQuiz;
+import local.mr.videohelper.CourseContext;
+import local.mr.videohelper.QuizKey;
+import local.mr.videohelper.QuizFeedback;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
@@ -150,6 +153,34 @@ public class EngineChecks {
         chapterPlay=quizFixture(args[0]+"/live-play-button.txt");
         for(AutomationEngine.Node v:chapterPlay)if(v.desc.equals("播放"))v.parentIndex=-1;
         expect(!new AutomationEngine().plan(chapterPlay,c,NOW).kind.equals("play"),"unrelated native play icon is excluded");
+        AutomationEngine.Node courseHeader=n("示例：课程 A","com.chaoxing.mobile:id/toolbar_tv_title","[0,100][1000,200]");
+        AutomationEngine.Node coursePager=n("","com.chaoxing.mobile:id/vp_course","[0,300][1000,2000]");
+        expect(CourseContext.detect(list(courseHeader,coursePager)).equals("示例：课程 A"),"course home supplies full course name");
+        expect(CourseContext.detect(list(courseHeader)).isEmpty(),"a generic toolbar title is not a course name");
+        expect(CourseContext.detect(quizFixture(args[0]+"/live-play-button.txt")).isEmpty(),"chapter title cannot overwrite course identity");
+        expect(QuizKey.normalize("课程　A").equals("课程 A"),"cache normalizes full-width whitespace");
+        quiz=quizFixture(args[0]+"/live-video-question.txt");q=VideoQuiz.read(quiz);
+        String stableKey=QuizKey.question(q), exactUiKey=q.fingerprint;
+        for(AutomationEngine.Node v:quiz) {
+            if(v.text.equals("《老友记》"))v.text="swap";
+            else if(v.text.equals("《生活大爆炸》"))v.text="《老友记》";
+        }
+        for(AutomationEngine.Node v:quiz)if(v.text.equals("swap"))v.text="《生活大爆炸》";
+        VideoQuiz reordered=VideoQuiz.read(quiz);
+        expect(QuizKey.question(reordered).equals(stableKey),"cache identity survives option reordering");
+        expect(!reordered.fingerprint.equals(exactUiKey),"asynchronous UI guard still detects reordered options");
+        expect(QuizKey.labelForText(reordered,"《老友记》").equals("A"),"cached answer text maps to the current label");
+        quiz=quizFixture(args[0]+"/live-video-question.txt");
+        for(AutomationEngine.Node v:quiz)if(v.text.equals("《臭臭猫》选自哪部美剧？"))v.text="下列回答错误的是？";
+        expect(QuizFeedback.detect(quiz)==0,"question wording containing wrong-answer phrase is not feedback");
+        AutomationEngine.Node wrong=n("回答错误，请重新作答","videoquiz-result","[300,700][1100,800]");wrong.type="android.widget.TextView";wrong.parentIndex=20;wrong.index=quiz.size();quiz.add(wrong);
+        expect(QuizFeedback.detect(quiz)==-1,"explicit post-answer wrong feedback detected");
+        expect(QuizFeedback.detect(list(n("回答错误","com.chaoxing.mobile:id/tv_subtitle","[0,0][100,100]")))==0,"video subtitle is not a quiz result");
+        chapterPlay=quizFixture(args[0]+"/live-play-button.txt");e=new AutomationEngine();a=e.plan(chapterPlay,c,NOW);e.performed(a,c,NOW);
+        List<AutomationEngine.Node> part=player("12:19","12:19");for(AutomationEngine.Node v:part)if(v.id.endsWith("/title"))v.text="3.1、何为音乐产业？(1)";
+        a=e.plan(part,c,NOW+1000);e.performed(a,c,NOW+1000);
+        expect(e.completedTitle.equals("3.1何为音乐产业？"),"completion uses source chapter rather than suffixed video title");
+        expect(e.plan(chapterPlay,c,NOW+2000).kind.equals("next"),"suffixed video does not cause replay of same chapter");
         System.out.println("PASS: "+checks+" Android UI decision checks");
     }
 }

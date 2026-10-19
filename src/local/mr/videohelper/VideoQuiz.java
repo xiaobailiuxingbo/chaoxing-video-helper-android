@@ -15,6 +15,7 @@ public final class VideoQuiz {
     }
     public String type="", stem="", fingerprint="", error="";
     public final List<Option> options = new ArrayList<>();
+    public final java.util.Set<Integer> contentNodes = new java.util.HashSet<>();
     public AutomationEngine.Node submit;
     private static boolean id(AutomationEngine.Node n, String id) {
         return n.id.equals(id) || n.id.equals("com.chaoxing.mobile:id/"+id);
@@ -65,6 +66,7 @@ public final class VideoQuiz {
             if(n.top>=header.bottom && n.bottom<=area.top && !n.text.trim().isEmpty()) {
                 if(!n.type.equals("android.widget.TextView")) return q.fail("题干含无法确认的内容");
                 if(stem.length()>0)stem.append('\n');stem.append(n.text.trim());
+                q.contentNodes.add(n.index);
             }
             if(n.top>=header.bottom && n.top<area.bottom && (n.type.contains("Image") || n.type.contains("Texture")))
                 return q.fail("题目含图片或媒体，当前文字模式无法判断");
@@ -75,6 +77,7 @@ public final class VideoQuiz {
         labels.sort((a,b)->Integer.compare(a.top,b.top));
         for(int i=0;i<labels.size();i++) {
             AutomationEngine.Node label=labels.get(i);
+            q.contentNodes.add(label.index);
             String expected=String.valueOf((char)('A'+i));
             if(!label.text.startsWith(expected))return q.fail("选项编号不连续，停止自动答题");
             StringBuilder option=new StringBuilder();
@@ -84,6 +87,7 @@ public final class VideoQuiz {
                 if(n.text.matches("[A-H][、.．:：]"))continue;
                 if(!n.type.equals("android.widget.TextView"))return q.fail("选项含无法确认的内容");
                 if(option.length()>0)option.append(' ');option.append(n.text.trim());
+                q.contentNodes.add(n.index);
             }
             if(option.length()==0 || option.length()>3000) return q.fail("选项内容无法完整读取");
             q.options.add(new Option(expected,option.toString(),area.left+(label.bottom-label.top)/2,(label.top+label.bottom)/2));

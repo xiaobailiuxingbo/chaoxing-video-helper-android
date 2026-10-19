@@ -22,7 +22,7 @@ public final class AutomationEngine {
         public long delay = 1100;
         Action(String kind, String message) { this.kind = kind; this.message = message; }
     }
-    public String videoTitle = "", progress = "", completedTitle = "";
+    public String videoTitle = "", progress = "", completedTitle = "", playingChapter = "";
     public long completedAt;
     public int retries;
     public String observation = "";
@@ -260,8 +260,9 @@ public final class AutomationEngine {
         else if (a.kind.equals("speed_choice")) speedDenied(c.rate);
         else if (a.kind.equals("reveal")) lastReveal = wallTime;
         else if (a.kind.equals("play")) {
+            playingChapter = playChapter;
             playAttempts++; playPending = true; playPlayerSeen = false; playBaseline = -1; playRequestedAt = wallTime;
         }
-        else if (a.kind.equals("back")) { completedTitle = normalize(videoTitle); completedAt = wallTime; playPending = false; }
+        else if (a.kind.equals("back")) { completedTitle = playingChapter.isEmpty() ? normalize(videoTitle) : playingChapter; completedAt = wallTime; playPending = false; }
     }
 }

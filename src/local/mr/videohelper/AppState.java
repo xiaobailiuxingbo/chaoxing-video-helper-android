@@ -10,6 +10,22 @@ import java.util.Locale;
 public final class AppState {
     private AppState() {}
     public static SharedPreferences prefs(Context c) { return c.getSharedPreferences("video_helper", Context.MODE_PRIVATE); }
+    public static QuizCache cache(Context c) {
+        SharedPreferences store=c.getSharedPreferences("quiz_cache",Context.MODE_PRIVATE);
+        return new QuizCache(new QuizCache.Storage(){
+            public String read(String key){return store.getString(key,"");}
+            public void write(String key,String value){store.edit().putString(key,value).apply();}
+            public void remove(String key){store.edit().remove(key).apply();}
+            public java.util.Set<String> keys(){return new java.util.HashSet<>(store.getAll().keySet());}
+        });
+    }
+    public static void setCourse(Context c,String name) {
+        String value=name.trim();
+        if(value.equals(prefs(c).getString("course_name","")))return;
+        if(PlaybackService.instance!=null)PlaybackService.instance.cancelQuizWork();
+        prefs(c).edit().putString("course_name",value).remove("completed_title").remove("completed_at").remove("playing_chapter").apply();
+        log(c,value.isEmpty()?"已清除课程分组，等待识别课程首页":"当前课程："+value);
+    }
     public static void start(Context c) {
         if(PlaybackService.instance!=null)PlaybackService.instance.cancelQuizWork();
         prefs(c).edit().putBoolean("running", true).putLong("session", SystemClock.elapsedRealtime())
@@ -25,7 +41,7 @@ public final class AppState {
     public static void stop(Context c) {
         if(PlaybackService.instance!=null)PlaybackService.instance.cancelQuizWork();
         prefs(c).edit().putBoolean("running", false).putString("status", "已停止")
-            .remove("completed_title").remove("completed_at").apply();
+            .remove("completed_title").remove("completed_at").remove("playing_chapter").apply();
         log(c, "已停止自动操作");
     }
     public static void status(Context c, String s) {

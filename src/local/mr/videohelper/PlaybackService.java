@@ -37,6 +37,11 @@ public final class PlaybackService extends AccessibilityService {
     private long quizStableAt, quizSubmittedAt, quizGeneration;
     private long quizReadFailedAt;
     private boolean quizRequestBusy, quizSelected;
+    private VideoQuiz quizQuestion;
+    private String quizCourse="";
+    private int quizCorrections, quizTouches, quizSignal, quizResumeBaseline=-1, quizReappearances;
+    private boolean quizFromCache, quizGone, quizAccepted;
+    private final java.util.List<String> quizRejected=new ArrayList<>();
     private final Runnable quizTimeout = () -> {
         if (quizRequestBusy) stopWith("DeepSeek 请求超时，请检查网络后重新开始");
     };
@@ -59,6 +64,9 @@ public final class PlaybackService extends AccessibilityService {
         if (event == null || !"com.chaoxing.mobile".contentEquals(event.getPackageName() == null ? "" : event.getPackageName())) return;
         if (event.getEventType() == AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED) {
             String message = event.getText().toString();
+            if(quizQuestion!=null && quizSubmittedAt>0) {
+                int feedback=QuizFeedback.text(message);if(feedback!=0)quizSignal=feedback;
+            }
             if (message.contains("教师已关闭倍速") || message.contains("任务点完成后可倍速")) {
                 engine.speedDenied(AppState.prefs(this).getString("rate", "1"));
                 AppState.log(this, "课程关闭了未完成视频的倍速，继续原速播放");
@@ -84,7 +92,7 @@ public final class PlaybackService extends AccessibilityService {
     }
     private void tick() {
         SharedPreferences p = AppState.prefs(this);
-        if (!p.getBoolean("running", false)) { cancelQuizWork(); return; }
+        if (!p.getBoolean("running", false)) { cancelQuizWork(); observeCourseWhileIdle(); return; }
         if (gestureBusy || SystemClock.elapsedRealtime() < nextActionAt) return;
         long started = p.getLong("started", 0);
         if (started <= 0 || SystemClock.elapsedRealtime() < started || SystemClock.elapsedRealtime() - started >= 21600000L) {
@@ -99,6 +107,7 @@ public final class PlaybackService extends AccessibilityService {
             cancelQuizWork();
             session = newSession; engine = new AutomationEngine(); unknownCount = 0; gestureFailures = 0;
             engine.completedTitle = p.getString("completed_title", ""); engine.completedAt = p.getLong("completed_at", 0);
+            engine.playingChapter=p.getString("playing_chapter","");
         }
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null) return;
@@ -109,20 +118,38 @@ public final class PlaybackService extends AccessibilityService {
         List<AutomationEngine.Node> snapshot = new ArrayList<>();
         try {
             collect(root, live, snapshot);
+            observeCourse(snapshot);
             AutomationEngine.Config c = config();
             AutomationEngine.Action a = engine.plan(snapshot, c, System.currentTimeMillis());
+            if(quizQuestion!=null && quizSubmittedAt>0) {
+                int feedback=quizSignal!=0?quizSignal:QuizFeedback.detect(snapshot);
+                if(feedback<0) {
+                    String failure=rejectQuizAnswer();
+                    if(failure!=null){stopWith(failure);return;}
+                    if(!VideoQuiz.present(snapshot)) {
+                        AutomationEngine.Node button=null;
+                        for(AutomationEngine.Node n:snapshot)if(n.visible() && n.id.equals("com.chaoxing.mobile:id/btnOk")
+                            && (n.text.equals("确定") || n.text.equals("重新作答") || n.text.equals("重试")))button=n;
+                        if(button==null){stopWith("已读到弹题答错提示，但无法确认关闭按钮，请检查");return;}
+                        a=new AutomationEngine.Action("quiz_feedback_close","关闭已读到的弹题答错提示");
+                        a.x=(button.left+button.right)/2;a.y=(button.top+button.bottom)/2;a.gestureOnly=true;
+                    }
+                } else if(feedback>0) {
+                    acceptQuizAnswer();quizSignal=0;
+                }
+            }
             if (!engine.observation.isEmpty()) AppState.log(this, engine.observation);
             AppState.status(this, a.message);
             SharedPreferences.Editor edit = p.edit().putString("video", engine.videoTitle).putString("progress", engine.progress)
-                .putString("completed_title", engine.completedTitle).putLong("completed_at", engine.completedAt);
+                .putString("completed_title", engine.completedTitle).putLong("completed_at", engine.completedAt).putString("playing_chapter",engine.playingChapter);
             edit.apply();
             if (a.kind.equals("stop")) { stopWith(a.message); return; }
             if (a.kind.equals("video_quiz")) {
                 a = quizAction(VideoQuiz.read(snapshot));
                 AppState.status(this, a.message);
                 if (a.kind.equals("stop")) { stopWith(a.message); return; }
-            } else if (!quizFingerprint.isEmpty()) {
-                cancelQuizWork();
+            } else if (!quizFingerprint.isEmpty() && !a.kind.equals("quiz_feedback_close")) {
+                if(observeQuizContinuation(snapshot))a=quizWait("弹题控件暂不可读，等待页面恢复");
             }
             if (a.kind.equals("wait")) {
                 if (a.message.equals("请打开学习通课程的视频页") || a.message.equals("等待视频加载") || a.message.equals("等待控件显示")) unknownCount++;
@@ -182,12 +209,11 @@ public final class PlaybackService extends AccessibilityService {
         if (a.kind.equals("quiz_select")) quizSelected=true;
         if (a.kind.equals("quiz_submit")) {
             quizSubmittedAt=SystemClock.elapsedRealtime();
-            java.util.Set<String> done=new java.util.HashSet<>(AppState.prefs(this).getStringSet("quiz_submitted",java.util.Collections.emptySet()));
-            done.add(quizFingerprint); AppState.prefs(this).edit().putStringSet("quiz_submitted",done).apply();
+            quizTouches++;quizSignal=0;quizGone=false;quizResumeBaseline=-1;
         }
         engine.performed(a, c, System.currentTimeMillis()); gestureFailures = 0;
         nextActionAt = SystemClock.elapsedRealtime() + a.delay;
-        AppState.prefs(this).edit().putString("completed_title", engine.completedTitle).putLong("completed_at", engine.completedAt).apply();
+        AppState.prefs(this).edit().putString("completed_title", engine.completedTitle).putLong("completed_at", engine.completedAt).putString("playing_chapter",engine.playingChapter).apply();
         if (!a.kind.equals("reveal")) AppState.log(this, a.message);
         refreshNotification();
         handler.removeCallbacks(loop); handler.postDelayed(loop, a.delay);
@@ -208,6 +234,59 @@ public final class PlaybackService extends AccessibilityService {
         quizClient=null; quizRequestBusy=false; quizAnswer=null; quizSelected=false;
         quizFingerprint=""; quizSubmittedAt=0; quizStableAt=0;
         quizReadFailedAt=0;
+        quizQuestion=null;quizCourse="";quizCorrections=0;quizTouches=0;quizSignal=0;quizFromCache=false;quizGone=false;quizAccepted=false;quizResumeBaseline=-1;quizReappearances=0;quizRejected.clear();
+    }
+    private void observeCourseWhileIdle() {
+        AccessibilityNodeInfo root=getRootInActiveWindow();
+        if(root==null)return;
+        if(!"com.chaoxing.mobile".contentEquals(root.getPackageName()==null?"":root.getPackageName())){root.recycle();return;}
+        List<AccessibilityNodeInfo> live=new ArrayList<>();List<AutomationEngine.Node> nodes=new ArrayList<>();
+        try{collect(root,live,nodes);observeCourse(nodes);}catch(RuntimeException ignored){}
+        finally{for(AccessibilityNodeInfo n:live)n.recycle();}
+    }
+    private void observeCourse(List<AutomationEngine.Node> nodes) {
+        String name=CourseContext.detect(nodes);
+        if(!name.isEmpty() && !name.equals(AppState.prefs(this).getString("course_name",""))) {
+            AppState.setCourse(this,name);engine=new AutomationEngine();session=-1;
+        }
+    }
+    private void acceptQuizAnswer() {
+        if(quizQuestion==null || quizAnswer==null || quizAccepted)return;
+        quizAccepted=true;
+        if(AppState.prefs(this).getBoolean("cache_enabled",true) && !quizCourse.isEmpty()) {
+            AppState.cache(this).accept(quizCourse,quizQuestion,quizAnswer.label);
+            AppState.log(this,"已通过弹题，答案已保存到本课程缓存（"+quizAnswer.label+"）");
+        }
+    }
+    private String rejectQuizAnswer() {
+        if(quizQuestion==null || quizAnswer==null)return "弹题反馈无法关联到答案，请检查";
+        AppState.cache(this).reject(quizCourse,quizQuestion,quizAnswer.label);
+        String rejectedText=QuizKey.normalize(quizQuestion.option(quizAnswer.label).text);
+        if(!quizRejected.contains(rejectedText))quizRejected.add(rejectedText);
+        if(++quizCorrections>2)return "同一道弹题已纠错两次，仍未通过，请检查题目";
+        AppState.log(this,(quizFromCache?"缓存答案被平台判错":"模型答案被平台判错")+"，已作废，重新请求 DeepSeek（纠错 "+quizCorrections+"/2）");
+        quizAnswer=null;quizSelected=false;quizSubmittedAt=0;quizTouches=0;quizSignal=0;quizFromCache=false;quizAccepted=false;quizResumeBaseline=-1;
+        return null;
+    }
+    private boolean observeQuizContinuation(List<AutomationEngine.Node> nodes) {
+        if(quizQuestion==null)return false;
+        if(quizSubmittedAt==0) {
+            for(AutomationEngine.Node n:nodes)if(n.visible() && n.id.equals("com.chaoxing.mobile:id/event_window"))return true;
+            if(quizCorrections==0)cancelQuizWork();
+            return false;
+        }
+        quizGone=true;
+        int current=-1,total=0;boolean chapter=false;
+        for(AutomationEngine.Node n:nodes) {
+            if(n.id.equals("com.chaoxing.mobile:id/land_current_time") && !n.text.isEmpty())current=AutomationEngine.seconds(n.text);
+            if(n.id.equals("com.chaoxing.mobile:id/land_total_time"))total=AutomationEngine.seconds(n.text);
+            if(n.id.equals("com.chaoxing.mobile:id/tv_chapter_name"))chapter=true;
+        }
+        if(quizResumeBaseline<0 && current>=0)quizResumeBaseline=current;
+        if((current>quizResumeBaseline && quizResumeBaseline>=0) || (current>=total && total>0)) {
+            acceptQuizAnswer();cancelQuizWork();
+        } else if(chapter)cancelQuizWork();
+        return false;
     }
     private AutomationEngine.Action quizWait(String message) { return new AutomationEngine.Action("wait",message); }
     private AutomationEngine.Action quizStop(String message) { return new AutomationEngine.Action("stop",message); }
@@ -223,17 +302,32 @@ public final class PlaybackService extends AccessibilityService {
         if(!p.getBoolean("quiz_enabled",false) || !KeyVault.exists(this)) return quizStop("遇到视频弹题：请在助手的 DeepSeek 设置中保存 Key 并启用");
         long now=SystemClock.elapsedRealtime();
         if(!q.fingerprint.equals(quizFingerprint)) {
-            cancelQuizWork();quizFingerprint=q.fingerprint;quizStableAt=now;
+            cancelQuizWork();quizFingerprint=q.fingerprint;quizStableAt=now;quizQuestion=q;
+            quizCourse=p.getString("course_name","");
             return quizWait("正在确认视频弹题内容");
         }
+        quizQuestion=q;
         if(quizSubmittedAt>0) {
-            if(now-quizSubmittedAt>6000) return quizStop("弹题提交后仍未关闭，请本人检查；不会重复提交");
-            return quizWait("已提交视频弹题，等待播放器继续");
+            if(quizGone) {
+                if(++quizReappearances>3)return quizStop("弹题连续重现且未观察到续播，请检查播放状态");
+                quizGone=false;quizSubmittedAt=0;quizSelected=false;quizTouches=0;quizResumeBaseline=-1;
+                return quizWait("相同弹题再次出现，复用本次已读取的答案");
+            }
+            if(now-quizSubmittedAt<=6000)return quizWait("已提交视频弹题，等待判题及播放器继续");
+            if(quizTouches>=2)return quizStop("两次提交后弹题仍未关闭，且没有可读取的判题结果，请检查");
+            AutomationEngine.Action retry=new AutomationEngine.Action("quiz_submit","弹题未响应，再次触摸提交按钮");
+            retry.x=(q.submit.left+q.submit.right)/2;retry.y=(q.submit.top+q.submit.bottom)/2;retry.gestureOnly=true;retry.delay=1200;return retry;
         }
-        if(p.getStringSet("quiz_submitted",java.util.Collections.emptySet()).contains(q.fingerprint)) return quizStop("检测到同一道弹题再次出现，请本人检查");
         if(quizRequestBusy) return quizWait("DeepSeek 正在判断视频弹题");
         if(quizAnswer==null) {
             if(now-quizStableAt<600)return quizWait("正在确认视频弹题内容");
+            if(quizCorrections==0 && p.getBoolean("cache_enabled",true)) {
+                quizAnswer=AppState.cache(this).find(quizCourse,q);
+                if(quizAnswer!=null) {
+                    quizFromCache=true;AppState.log(this,"命中本课程答案缓存："+quizAnswer.label+"，不调用 API");
+                    return quizWait("已读取本课程缓存，准备自动选择");
+                }
+            }
             int count=p.getInt("quiz_requests",0);
             if(count>=20) return quizStop("本次已调用二十道弹题，请检查后重新开始");
             final String key;
@@ -243,11 +337,13 @@ public final class PlaybackService extends AccessibilityService {
             p.edit().putInt("quiz_requests",count+1).apply();
             final long generation=quizGeneration, requestSession=session;
             final DeepSeekClient client=new DeepSeekClient();quizClient=client;quizRequestBusy=true;
+            final java.util.List<String> rejected=new ArrayList<>(AppState.cache(this).rejected(quizCourse,q));
+            for(String rejectedText:quizRejected)if(!rejected.contains(rejectedText))rejected.add(rejectedText);
             handler.postDelayed(quizTimeout,45000);
             AppState.log(this,"读取到文字单选弹题，正在请求 DeepSeek（本次第 "+(count+1)+" 题）");refreshNotification();
             network.execute(()->{
                 DeepSeekClient.Answer result=null;String error=null;
-                try{result=client.solve(q,key,model);}
+                try{result=client.solve(q,key,model,rejected);}
                 catch(java.net.SocketTimeoutException e){error="DeepSeek 请求超时，请检查网络后重新开始";}
                 catch(org.json.JSONException e){error="模型响应格式不正确，请本人处理";}
                 catch(java.io.IOException e){error="DeepSeek 网络连接失败，请检查网络后重新开始";}
@@ -291,6 +387,8 @@ public final class PlaybackService extends AccessibilityService {
         out.println("quiz_enabled=" + p.getBoolean("quiz_enabled",false));
         out.println("api_key_saved=" + KeyVault.exists(this));
         out.println("quiz_requests=" + p.getInt("quiz_requests",0));
+        out.println("course="+p.getString("course_name",""));
+        out.println("course_cache_entries="+AppState.cache(this).count(p.getString("course_name","")));
         out.println("recent_actions:");
         out.println(p.getString("log", ""));
         if (args != null && java.util.Arrays.asList(args).contains("nodes")) {

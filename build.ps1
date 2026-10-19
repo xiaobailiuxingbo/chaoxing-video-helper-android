@@ -20,7 +20,7 @@ $sourceRoot=Join-Path $PSScriptRoot 'src\local\mr\videohelper'
 $files=Get-ChildItem -LiteralPath $sourceRoot -Filter '*.java' | Select-Object -ExpandProperty FullName
 & $javac -encoding UTF-8 -source 8 -target 8 -classpath $androidJar -d $classes @files
 Check-Exit 'javac Android'
-& $javac -encoding UTF-8 -d $tests (Join-Path $sourceRoot 'AutomationEngine.java') (Join-Path $sourceRoot 'VideoQuiz.java') (Join-Path $PSScriptRoot 'test\EngineChecks.java')
+& $javac -encoding UTF-8 -d $tests (Join-Path $sourceRoot 'AutomationEngine.java') (Join-Path $sourceRoot 'VideoQuiz.java') (Join-Path $sourceRoot 'CourseContext.java') (Join-Path $sourceRoot 'QuizKey.java') (Join-Path $sourceRoot 'QuizFeedback.java') (Join-Path $PSScriptRoot 'test\EngineChecks.java')
 Check-Exit 'javac checks'
 & $java -cp $tests EngineChecks (Join-Path $PSScriptRoot 'test\fixtures')
 Check-Exit 'UI decision checks'
@@ -28,7 +28,7 @@ $compiledRes=Join-Path $run 'resources.zip'
 & (Join-Path $buildTools 'aapt2.exe') compile --dir (Join-Path $PSScriptRoot 'res') -o $compiledRes
 Check-Exit 'aapt2 compile'
 $baseApk=Join-Path $run 'base.apk'
-& (Join-Path $buildTools 'aapt2.exe') link -o $baseApk -I $androidJar --manifest (Join-Path $PSScriptRoot 'AndroidManifest.xml') --min-sdk-version 26 --target-sdk-version 35 --version-code 4 --version-name '1.1.2' $compiledRes
+& (Join-Path $buildTools 'aapt2.exe') link -o $baseApk -I $androidJar --manifest (Join-Path $PSScriptRoot 'AndroidManifest.xml') --min-sdk-version 26 --target-sdk-version 35 --version-code 5 --version-name '1.2.0' $compiledRes
 Check-Exit 'aapt2 link'
 $classesJar=Join-Path $run 'classes.jar'
 & $jar --create --file $classesJar -C $classes .

@@ -1,6 +1,8 @@
 import local.mr.videohelper.DeepSeekClient;
 import local.mr.videohelper.VideoQuiz;
 import local.mr.videohelper.AutomationEngine;
+import local.mr.videohelper.QuizCache;
+import local.mr.videohelper.QuizKey;
 import org.json.JSONObject;
 import org.json.JSONArray;
 import java.util.ArrayList;
@@ -42,6 +44,31 @@ public class JsonChecks {
         rejects(response(result(),"length"),q,"truncated response");
         rejects("{\"choices\":[]}",q,"empty choices");
         rejects("not json",q,"invalid JSON");
-        System.out.println("PASS: "+checks+" Android JSON response checks (no API requests)");
+        String connection=new JSONObject().put("model","deepseek-flash").put("choices",new JSONArray().put(new JSONObject().put("finish_reason","stop").put("message",new JSONObject().put("content","OK")))).toString();
+        expect(DeepSeekClient.parseConnection(connection).equals("deepseek-flash"),"connection test requires complete model response");
+        boolean badConnection=false;try{DeepSeekClient.parseConnection(connection.replace("\"OK\"","null"));}catch(Exception e){badConnection=true;}
+        expect(badConnection,"null response cannot be called connection success");
+        final java.util.Map<String,String> records=new java.util.HashMap<>();
+        QuizCache.Storage storage=new QuizCache.Storage(){
+            public String read(String key){return records.getOrDefault(key,"");}
+            public void write(String key,String value){records.put(key,value);}
+            public void remove(String key){records.remove(key);}
+            public java.util.Set<String> keys(){return new java.util.HashSet<>(records.keySet());}
+        };
+        QuizCache cache=new QuizCache(storage);
+        cache.accept("Course A",q,"B");expect(cache.find("Course A",q).label.equals("B"),"accepted answer stored per course");
+        expect(cache.find("Course B",q)==null,"another course cannot read the entry");
+        expect(cache.find("",q)==null,"unknown course does not share a global cache");
+        expect(new QuizCache(storage).find("Course A",q).label.equals("B"),"recreating cache object retains stored data");
+        VideoQuiz.Option first=q.options.get(0),second=q.options.get(1);String firstText=first.text;first.text=second.text;second.text=firstText;
+        expect(cache.find("Course A",q).label.equals("A"),"persistent answer text survives shuffled option labels");
+        cache.reject("Course A",q,"A");expect(cache.find("Course A",q)==null,"wrong feedback invalidates the cached answer");
+        expect(cache.rejected("Course A",q).contains("two"),"rejected answer supplied for model correction");
+        cache.accept("Course A",q,"A");expect(cache.find("Course A",q)==null,"a known-wrong answer cannot be restored as accepted");
+        cache.accept("Course A",q,"B");expect(cache.find("Course A",q).label.equals("B"),"corrected choice replaces invalidated answer");
+        cache.accept("Course B",q,"B");cache.clear("Course A");
+        expect(cache.count("Course A")==0 && cache.find("Course B",q)!=null,"clear only removes the selected course");
+        records.replaceAll((key,value)->"malformed data");expect(cache.find("Course B",q)==null,"damaged cache entry ignored safely");
+        System.out.println("PASS: "+checks+" Android JSON and cache checks (no API requests)");
     }
 }
