@@ -121,6 +121,35 @@ public class EngineChecks {
         quiz=quizFixture(args[0]+"/live-video-question.txt");
         for(AutomationEngine.Node v:quiz)if(v.text.equals("《臭臭猫》选自哪部美剧？"))v.type="android.widget.ImageView";
         expect(!VideoQuiz.read(quiz).error.isEmpty(),"media question cannot be guessed by text model");
+        List<AutomationEngine.Node> chapterPlay=quizFixture(args[0]+"/live-play-button.txt");
+        e=new AutomationEngine();a=e.plan(chapterPlay,c,NOW);
+        expect(a.kind.equals("play") && a.gestureOnly && a.x==635 && a.y==1386,"observed web button requires actual screen touch");
+        expect(!a.message.contains("开始播放当前视频"),"a dispatched click is not reported as playback success");
+        e.performed(a,c,NOW);
+        expect(e.plan(chapterPlay,c,NOW+1000).kind.equals("wait") && e.observation.isEmpty(),"same chapter waits for player without log spam");
+        a=e.plan(chapterPlay,c,NOW+5000);
+        expect(a.kind.equals("play"),"unresponsive first click can be retried after waiting");e.performed(a,c,NOW+5000);
+        a=e.plan(chapterPlay,c,NOW+10000);
+        expect(a.kind.equals("play"),"third bounded touch attempt");e.performed(a,c,NOW+10000);
+        expect(e.plan(chapterPlay,c,NOW+15000).kind.equals("stop"),"three ineffective touches stop instead of looping");
+        e=new AutomationEngine();a=e.plan(chapterPlay,c,NOW);e.performed(a,c,NOW);
+        a=e.plan(player("00:10","05:20"),c,NOW+1000);
+        expect(a.kind.equals("wait") && e.observation.isEmpty(),"opening player alone does not confirm playback");
+        e.plan(player("00:10","05:20"),c,NOW+2000);
+        expect(e.observation.isEmpty(),"stationary timer does not confirm playback");
+        e.plan(player("00:11","05:20"),c,NOW+3000);
+        expect(e.observation.contains("已确认视频开始播放"),"advancing native timer confirms actual playback");
+        e.plan(player("00:12","05:20"),c,NOW+4000);
+        expect(e.observation.isEmpty(),"playback confirmation logged once");
+        e=new AutomationEngine();a=e.plan(chapterPlay,c,NOW);e.performed(a,c,NOW);
+        e.plan(player("00:10","05:20"),c,NOW+1000);
+        expect(e.plan(player("00:10","05:20"),c,NOW+30000).kind.equals("stop"),"player that opens but never advances stops after timeout");
+        chapterPlay=quizFixture(args[0]+"/live-play-button.txt");
+        for(AutomationEngine.Node v:chapterPlay)if(v.desc.equals("播放"))v.onScreen=false;
+        expect(!new AutomationEngine().plan(chapterPlay,c,NOW).kind.equals("play"),"hidden play button is not clicked");
+        chapterPlay=quizFixture(args[0]+"/live-play-button.txt");
+        for(AutomationEngine.Node v:chapterPlay)if(v.desc.equals("播放"))v.parentIndex=-1;
+        expect(!new AutomationEngine().plan(chapterPlay,c,NOW).kind.equals("play"),"unrelated native play icon is excluded");
         System.out.println("PASS: "+checks+" Android UI decision checks");
     }
 }

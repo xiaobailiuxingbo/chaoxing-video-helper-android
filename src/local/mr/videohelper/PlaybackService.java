@@ -111,6 +111,7 @@ public final class PlaybackService extends AccessibilityService {
             collect(root, live, snapshot);
             AutomationEngine.Config c = config();
             AutomationEngine.Action a = engine.plan(snapshot, c, System.currentTimeMillis());
+            if (!engine.observation.isEmpty()) AppState.log(this, engine.observation);
             AppState.status(this, a.message);
             SharedPreferences.Editor edit = p.edit().putString("video", engine.videoTitle).putString("progress", engine.progress)
                 .putString("completed_title", engine.completedTitle).putLong("completed_at", engine.completedAt);
@@ -135,7 +136,7 @@ public final class PlaybackService extends AccessibilityService {
                 else failed();
                 return;
             }
-            if (!a.kind.equals("scroll_next") && a.nodeIndex >= 0 && a.nodeIndex < live.size()) {
+            if (!a.gestureOnly && !a.kind.equals("scroll_next") && a.nodeIndex >= 0 && a.nodeIndex < live.size()) {
                 AccessibilityNodeInfo target = live.get(a.nodeIndex);
                 if (target.isClickable() && target.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
                     completed(a, c); return;

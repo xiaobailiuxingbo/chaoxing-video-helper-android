@@ -18,12 +18,18 @@ public final class AutomationEngine {
     public static final class Action {
         public final String kind, message;
         public int x, y, x2, y2, nodeIndex = -1;
+        public boolean gestureOnly;
         public long delay = 1100;
         Action(String kind, String message) { this.kind = kind; this.message = message; }
     }
     public String videoTitle = "", progress = "", completedTitle = "";
     public long completedAt;
     public int retries;
+    public String observation = "";
+    private String playChapter = "";
+    private int playAttempts, playBaseline = -1;
+    private long playRequestedAt;
+    private boolean playPending, playPlayerSeen;
     private int consentStage, webFocus, scrollCount, previousSecond = -1;
     private String speedApplied = "";
     private long speedPending, lastReveal;
@@ -44,7 +50,6 @@ public final class AutomationEngine {
         return null;
     }
     private Node text(String value) { for (Node n : nodes) if (n.text.equals(value)) return n; return null; }
-    private Node desc(String value) { for (Node n : nodes) if (n.desc.equals(value)) return n; return null; }
     private boolean contains(String value) { for (Node n : nodes) if (n.text.contains(value)) return true; return false; }
     private String textOf(Node n) { return n == null ? "" : n.text; }
     private Action waitFor(String message) { return new Action("wait", message); }
@@ -57,6 +62,17 @@ public final class AutomationEngine {
     }
     private boolean completed() { return !completedTitle.isEmpty() && now >= completedAt && now - completedAt < 600000; }
     private Node web() { for (Node n : nodes) if (n.type.equals("android.webkit.WebView") && n.visible()) return n; return null; }
+    private boolean inWeb(Node n) {
+        for (int i = 0; n != null && i < nodes.size(); i++) {
+            if (n.type.equals("android.webkit.WebView")) return true;
+            n = n.parentIndex >= 0 && n.parentIndex < nodes.size() ? nodes.get(n.parentIndex) : null;
+        }
+        return false;
+    }
+    private Node videoPlay() {
+        for (Node n : nodes) if (n.visible() && n.desc.equals("播放") && inWeb(n)) return n;
+        return null;
+    }
     private Node videoTab(boolean selectedOnly) {
         for (Node n : nodes) if (n.id.equals("com.chaoxing.mobile:id/tv_title") && n.text.contains("视频") && (!selectedOnly || n.selected)) return n;
         return null;
@@ -78,7 +94,7 @@ public final class AutomationEngine {
     public void speedDenied(String rate) { speedPending = 0; speedApplied = videoTitle + ":" + rate; }
 
     public Action plan(List<Node> input, Config c, long wallTime) {
-        nodes = input; config = c; now = wallTime;
+        nodes = input; config = c; now = wallTime; observation = "";
         boolean inApp = false;
         for (Node n : nodes) if (n.pkg.equals("com.chaoxing.mobile")) { inApp = true; break; }
         if (!inApp) return waitFor("等待学习通视频页进入前台");
@@ -139,6 +155,18 @@ public final class AutomationEngine {
             }
             String elapsed = textOf(id("land_current_time")), duration = textOf(id("land_total_time"));
             int current = seconds(elapsed), total = seconds(duration);
+            if (playPending) {
+                playPlayerSeen = true;
+                if (total > 0) {
+                    if (playBaseline < 0) playBaseline = current;
+                    else if (current > playBaseline) {
+                        playPending = false; playAttempts = 0;
+                        observation = "已确认视频开始播放：" + elapsed + " / " + duration;
+                    }
+                }
+                if (playPending && now - playRequestedAt >= 30000)
+                    return stop("已进入播放器，但三十秒内未观察到进度前进，请检查播放状态或网络");
+            }
             if (total > 0) {
                 progress = elapsed + " / " + duration;
                 if (current > previousSecond && previousSecond >= 0) retries = 0;
@@ -159,14 +187,23 @@ public final class AutomationEngine {
                 a.y = surface.top + (surface.bottom - surface.top) / 3; a.delay = 300;
                 return a;
             }
-            return waitFor("正在辅助播放；请保持学习通前台");
+            return waitFor(playPending ? "已进入播放器，等待进度前进以确认播放" : "正在辅助播放；请保持学习通前台");
         }
         if (chapter != null) {
             String currentTitle = normalize(chapter.text);
+            if (!currentTitle.equals(playChapter)) {
+                playChapter = currentTitle; playAttempts = 0; playPending = false; playPlayerSeen = false; playBaseline = -1;
+            }
             if (!completedTitle.isEmpty() && (!currentTitle.equals(completedTitle) || !completed())) {
                 completedTitle = ""; completedAt = 0;
             }
-            Node view = web(), next = id("nextChapter"), play = desc("播放");
+            Node view = web(), next = id("nextChapter"), play = videoPlay();
+            if (playPending) {
+                if (playPlayerSeen) return stop("播放器已返回章节页，尚未确认播放，请检查当前视频");
+                if (now - playRequestedAt < 5000) return waitFor("已发送播放触摸，等待播放器打开");
+                if (playAttempts >= 3) return stop("已尝试点击播放三次，播放器仍未打开，请检查页面");
+                if (now - playRequestedAt >= 30000) return stop("点击播放后仍未进入播放器，请检查当前视频页面");
+            }
             boolean taskLabel = false;
             for (Node n : nodes) if (n.text.startsWith("任务点")) taskLabel = true;
             if (view != null && next == null && play == null && !taskLabel) {
@@ -201,7 +238,12 @@ public final class AutomationEngine {
                 if (tab == null) return stop("本节没有视频，请选择后续视频章节");
                 return tap("video_tab", tab, "切换到视频标签页");
             }
-            if (play != null) return tap("play", play, "开始播放当前视频");
+            if (play != null) {
+                Action a = tap("play", play, "触摸视频播放按钮（第 " + (playAttempts + 1) + " 次），等待启动");
+                // Some player WebViews accept ACTION_CLICK without starting playback.
+                a.gestureOnly = true; a.delay = 1000;
+                return a;
+            }
             return waitFor("等待视频加载");
         }
         return waitFor("请打开学习通课程的视频页");
@@ -217,6 +259,9 @@ public final class AutomationEngine {
         else if (a.kind.equals("speed_open")) speedPending = wallTime;
         else if (a.kind.equals("speed_choice")) speedDenied(c.rate);
         else if (a.kind.equals("reveal")) lastReveal = wallTime;
-        else if (a.kind.equals("back")) { completedTitle = normalize(videoTitle); completedAt = wallTime; }
+        else if (a.kind.equals("play")) {
+            playAttempts++; playPending = true; playPlayerSeen = false; playBaseline = -1; playRequestedAt = wallTime;
+        }
+        else if (a.kind.equals("back")) { completedTitle = normalize(videoTitle); completedAt = wallTime; playPending = false; }
     }
 }

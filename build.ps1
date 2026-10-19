@@ -1,4 +1,4 @@
-param([string]$SdkRoot=$env:ANDROID_HOME)
+param([string]$SdkRoot=$env:ANDROID_HOME, [string]$SigningKey='')
 $ErrorActionPreference='Stop'
 if([string]::IsNullOrWhiteSpace($SdkRoot)) { $SdkRoot=$env:ANDROID_SDK_ROOT }
 if([string]::IsNullOrWhiteSpace($SdkRoot)) { throw 'Pass -SdkRoot or set ANDROID_HOME to your Android SDK directory.' }
@@ -28,7 +28,7 @@ $compiledRes=Join-Path $run 'resources.zip'
 & (Join-Path $buildTools 'aapt2.exe') compile --dir (Join-Path $PSScriptRoot 'res') -o $compiledRes
 Check-Exit 'aapt2 compile'
 $baseApk=Join-Path $run 'base.apk'
-& (Join-Path $buildTools 'aapt2.exe') link -o $baseApk -I $androidJar --manifest (Join-Path $PSScriptRoot 'AndroidManifest.xml') --min-sdk-version 26 --target-sdk-version 35 --version-code 3 --version-name '1.1.1' $compiledRes
+& (Join-Path $buildTools 'aapt2.exe') link -o $baseApk -I $androidJar --manifest (Join-Path $PSScriptRoot 'AndroidManifest.xml') --min-sdk-version 26 --target-sdk-version 35 --version-code 4 --version-name '1.1.2' $compiledRes
 Check-Exit 'aapt2 link'
 $classesJar=Join-Path $run 'classes.jar'
 & $jar --create --file $classesJar -C $classes .
@@ -41,6 +41,7 @@ $aligned=Join-Path $run 'aligned.apk'
 & (Join-Path $buildTools 'zipalign.exe') -f 4 $baseApk $aligned
 Check-Exit 'zipalign'
 $keystore=Join-Path $PSScriptRoot 'build\debug.keystore'
+if(-not [string]::IsNullOrWhiteSpace($SigningKey)) { $keystore=(Resolve-Path -LiteralPath $SigningKey).Path }
 if(!(Test-Path -LiteralPath $keystore)) {
     & $keytool -genkeypair -keystore $keystore -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -dname 'CN=Local Video Helper,O=Local,C=CN'
     Check-Exit 'debug key'

@@ -1,0 +1,68 @@
+0 |  | android.widget.FrameLayout |  |  | 0,0,1280,2800 | click=false checked=false selected=false parent=-1 visible=true
+1 |  | android.widget.FrameLayout |  |  | 0,0,1280,2800 | click=false checked=false selected=false parent=0 visible=true
+2 |  | android.widget.LinearLayout |  |  | 0,0,1280,2744 | click=true checked=false selected=false parent=1 visible=true
+3 |  | android.widget.FrameLayout |  |  | 0,142,1280,2744 | click=false checked=false selected=false parent=2 visible=true
+4 | com.chaoxing.mobile:id/action_bar_root | android.widget.LinearLayout |  |  | 0,142,1280,2744 | click=false checked=false selected=false parent=3 visible=true
+5 | android:id/content | android.widget.FrameLayout |  |  | 0,142,1280,2744 | click=false checked=false selected=false parent=4 visible=true
+6 |  | android.widget.LinearLayout |  |  | 0,142,1280,2744 | click=false checked=false selected=false parent=5 visible=true
+7 | com.chaoxing.mobile:id/toolBar | android.widget.FrameLayout |  |  | 0,142,1280,311 | click=false checked=false selected=false parent=6 visible=true
+8 |  | android.widget.RelativeLayout |  |  | 0,142,1280,311 | click=false checked=false selected=false parent=7 visible=true
+9 | com.chaoxing.mobile:id/toolbar_background_view | android.widget.ImageView |  |  | 0,142,1280,310 | click=false checked=false selected=false parent=8 visible=true
+10 | com.chaoxing.mobile:id/toolbar_content | android.widget.LinearLayout |  |  | 0,142,1280,310 | click=false checked=false selected=false parent=8 visible=true
+11 | com.chaoxing.mobile:id/toolbar_left_action_layout_parent | android.widget.ViewFlipper |  |  | 0,142,169,310 | click=false checked=false selected=false parent=10 visible=true
+12 | com.chaoxing.mobile:id/toolbar_left_action_layout | android.widget.LinearLayout |  |  | 0,177,133,275 | click=false checked=false selected=false parent=11 visible=true
+13 | com.chaoxing.mobile:id/toolbar_left_action | android.widget.TextView |  | 返回按钮 | 28,184,112,268 | click=true checked=false selected=false parent=12 visible=true
+14 | com.chaoxing.mobile:id/toolbar_title_layout_parent | android.widget.ViewFlipper |  |  | 169,142,1111,310 | click=false checked=false selected=false parent=10 visible=true
+15 | com.chaoxing.mobile:id/toolbar_title_layout | android.widget.LinearLayout |  |  | 169,142,1111,310 | click=false checked=false selected=false parent=14 visible=true
+16 | com.chaoxing.mobile:id/toolbar_tv_title | android.widget.TextView | 章节 |  | 577,183,703,268 | click=false checked=false selected=false parent=15 visible=true
+17 | com.chaoxing.mobile:id/toolbar_right_action_parent_layout | android.widget.ViewFlipper |  |  | 1111,142,1280,310 | click=false checked=false selected=false parent=10 visible=true
+18 | com.chaoxing.mobile:id/toolbar_right_action_layout | android.widget.LinearLayout |  |  | 1111,183,1280,268 | click=false checked=false selected=false parent=17 visible=true
+19 | com.chaoxing.mobile:id/toolbar_right_action | android.widget.TextView | 讨论 |  | 1132,190,1238,261 | click=true checked=false selected=false parent=18 visible=true
+20 | com.chaoxing.mobile:id/bottom_line | android.view.View |  |  | 0,310,1280,311 | click=false checked=false selected=false parent=8 visible=true
+21 |  | android.widget.RelativeLayout |  |  | 0,311,1280,2744 | click=false checked=false selected=false parent=6 visible=true
+22 | com.chaoxing.mobile:id/screen_control | android.widget.FrameLayout |  |  | 0,311,1280,2744 | click=false checked=false selected=false parent=21 visible=true
+23 |  | android.widget.FrameLayout |  |  | 0,311,1280,2744 | click=false checked=false selected=false parent=22 visible=true
+24 | com.chaoxing.mobile:id/ll_chapter_paper | android.widget.LinearLayout |  |  | 0,311,1280,2744 | click=false checked=false selected=false parent=21 visible=true
+25 | com.chaoxing.mobile:id/tv_chapter_name | android.widget.TextView | 3.1 何为音乐产业？ |  | 0,311,1280,502 | click=false checked=false selected=false parent=24 visible=true
+26 |  | android.widget.LinearLayout |  |  | 0,502,1280,502 | click=false checked=false selected=false parent=24 visible=false
+27 | com.chaoxing.mobile:id/tb_chapter | android.widget.HorizontalScrollView |  |  | 0,502,1280,653 | click=false checked=false selected=false parent=24 visible=true
+28 |  | android.widget.LinearLayout |  |  | 32,502,1280,653 | click=false checked=false selected=false parent=27 visible=true
+29 |  | android.widget.LinearLayout |  | 1 视频 | 32,502,305,653 | click=false checked=false selected=true parent=28 visible=true
+30 |  | android.view.ViewGroup |  |  | 53,521,284,634 | click=false checked=false selected=true parent=29 visible=true
+31 | com.chaoxing.mobile:id/tv_title | android.widget.TextView | 1 视频 |  | 53,521,284,634 | click=false checked=false selected=true parent=30 visible=true
+32 |  | android.widget.LinearLayout |  | 2 章节测验 | 305,502,693,653 | click=true checked=false selected=false parent=28 visible=true
+33 |  | android.view.ViewGroup |  |  | 326,521,672,634 | click=false checked=false selected=false parent=32 visible=true
+34 | com.chaoxing.mobile:id/tv_title | android.widget.TextView | 2 章节测验 |  | 326,521,672,634 | click=false checked=false selected=false parent=33 visible=true
+35 | com.chaoxing.mobile:id/vp_chapter | androidx.viewpager.widget.ViewPager |  |  | 0,653,1280,2744 | click=false checked=false selected=false parent=24 visible=true
+36 | com.chaoxing.mobile:id/fl_container | android.widget.FrameLayout |  |  | 0,653,1280,2744 | click=false checked=false selected=false parent=35 visible=true
+37 |  | android.view.ViewGroup |  |  | 0,653,1280,2744 | click=false checked=false selected=false parent=36 visible=true
+38 | com.chaoxing.mobile:id/web_view_fragment | android.view.ViewGroup |  |  | 0,653,1280,2744 | click=false checked=false selected=false parent=37 visible=true
+39 | com.chaoxing.mobile:id/web_view_fragment_web_view_layout | android.view.ViewGroup |  |  | 0,653,1280,2744 | click=false checked=false selected=false parent=38 visible=true
+40 | com.chaoxing.mobile:id/web_view_fragment_refresh_layout | android.view.ViewGroup |  |  | 0,653,1280,2744 | click=false checked=false selected=false parent=39 visible=true
+41 |  | android.widget.RelativeLayout |  |  | 0,653,1280,653 | click=false checked=false selected=false parent=40 visible=false
+42 | com.chaoxing.mobile:id/srl_classics_arrow | android.widget.ImageView |  | <未命名> | 411,653,474,583 | click=false checked=false selected=false parent=41 visible=false
+43 | com.chaoxing.mobile:id/srl_classics_center | android.widget.LinearLayout |  |  | 502,653,778,582 | click=false checked=false selected=false parent=41 visible=false
+44 | com.chaoxing.mobile:id/srl_classics_title | android.widget.TextView | 下拉可以刷新 |  | 502,653,778,582 | click=false checked=false selected=false parent=43 visible=false
+45 |  | android.webkit.WebView |  |  | 0,653,1280,2744 | click=false checked=false selected=false parent=40 visible=true
+46 |  | android.webkit.WebView |  |  | 0,653,1280,2744 | click=false checked=false selected=false parent=45 visible=true
+47 | ext-gen1001 | android.view.View |  |  | 0,688,1280,2707 | click=false checked=false selected=false parent=46 visible=true
+48 | markDiv | android.widget.TextView |  |  | 0,688,1280,688 | click=false checked=false selected=false parent=47 visible=false
+49 | ext-gen1052 | android.view.View |  |  | 28,688,1246,1731 | click=false checked=false selected=false parent=47 visible=true
+50 |  | android.widget.TextView | 任务点 |  | 98,716,241,772 | click=false checked=false selected=false parent=49 visible=true
+51 |  | android.widget.TextView | 完成 条件 |  | 28,838,168,1027 | click=false checked=false selected=false parent=49 visible=true
+52 |  | android.widget.TextView | 观看时长需 ≥ 总时长的 90% (未完成任务点前, 当前视频不可拖拽、观看时不可离开或将页面最小化) |  | 161,849,1242,1013 | click=false checked=false selected=false parent=49 visible=true
+53 |  | android.view.View |  |  | 28,1041,1246,1731 | click=false checked=false selected=false parent=49 visible=true
+54 |  | android.view.View |  |  | 28,1041,1246,1727 | click=false checked=false selected=false parent=53 visible=true
+55 | ext-gen1049 | android.view.View |  |  | 28,1041,1246,1727 | click=false checked=false selected=false parent=54 visible=true
+56 | reader | android.view.View |  |  | 28,1045,1242,1724 | click=false checked=false selected=false parent=55 visible=true
+57 | ext-gen1050 | android.view.View |  |  | 28,1045,1242,1724 | click=false checked=false selected=false parent=56 visible=true
+58 |  | android.widget.TextView |  |  | 28,1045,1242,1724 | click=false checked=false selected=false parent=57 visible=true
+59 | ext-gen1051 | android.widget.Button |  | 播放 | 581,1332,689,1440 | click=true checked=false selected=false parent=57 visible=true
+60 |  | android.widget.TextView |   |  | 28,1780,1246,1916 | click=false checked=false selected=false parent=47 visible=true
+61 |  | android.view.View |  |  | 0,1997,1280,2109 | click=false checked=false selected=false parent=47 visible=true
+62 | nextChapter | android.widget.TextView | 下一节 |  | 973,1997,1228,2109 | click=false checked=false selected=false parent=61 visible=true
+63 | previousChapter | android.widget.TextView | 上一节 |  | 668,1997,924,2102 | click=false checked=false selected=false parent=61 visible=true
+64 | writeNotes | android.widget.TextView |  |  | 1018,2011,1232,2224 | click=false checked=false selected=false parent=47 visible=true
+65 | com.chaoxing.mobile:id/fl_container | android.widget.FrameLayout |  |  | 1280,653,1280,2744 | click=false checked=false selected=false parent=35 visible=false
+66 | android:id/statusBarBackground | android.view.View |  |  | 0,0,1280,142 | click=false checked=false selected=false parent=0 visible=false
+67 | android:id/navigationBarBackground | android.view.View |  |  | 0,2744,1280,2800 | click=false checked=false selected=false parent=0 visible=true
