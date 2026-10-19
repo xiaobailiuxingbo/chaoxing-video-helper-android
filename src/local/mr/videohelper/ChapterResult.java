@@ -9,7 +9,7 @@ import java.util.regex.Pattern;
 public final class ChapterResult {
     public static final class Entry {
         public VideoQuiz question;
-        public String answer="", correctAnswer="";
+        public String answer="", correctAnswer="", score="";
         public boolean correct, wrong;
     }
     public final List<Entry> entries=new ArrayList<>();
@@ -50,6 +50,7 @@ public final class ChapterResult {
                 if(text.startsWith("我的答案：") || text.startsWith("我的答案:"))mine=text.substring(5);
                 if(text.startsWith("正确答案：") || text.startsWith("正确答案:"))correct=text.substring(5);
                 if(text.matches("得分[:：]0(?:\\.0+)?分"))zero=true;
+                if(text.matches("得分[:：][0-9]+(?:\\.[0-9]+)?分"))entry.score=text.substring(3,text.length()-1);
             }
             q.stem=stem.toString();
             if(q.type.equals("判断题") && q.options.isEmpty() && (mine.equals("对") || mine.equals("错"))) {

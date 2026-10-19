@@ -3,6 +3,8 @@ import local.mr.videohelper.VideoQuiz;
 import local.mr.videohelper.AutomationEngine;
 import local.mr.videohelper.QuizCache;
 import local.mr.videohelper.QuizKey;
+import local.mr.videohelper.StudyHistory;
+import local.mr.videohelper.ChapterResult;
 import org.json.JSONObject;
 import org.json.JSONArray;
 import java.util.ArrayList;
@@ -19,6 +21,14 @@ public class JsonChecks {
     static JSONObject result() throws Exception{return new JSONObject().put("answerable",true).put("confidence","high").put("answers",new JSONArray().put("B")).put("reason","test");}
     static void rejects(String raw,VideoQuiz q,String label) throws Exception {
         boolean rejected=false;try{DeepSeekClient.parse(raw,q);}catch(Exception e){rejected=true;}expect(rejected,label);
+    }
+    static QuizCache.Storage memory(final java.util.Map<String,String> values) {
+        return new QuizCache.Storage(){
+            public String read(String key){return values.getOrDefault(key,"");}
+            public void write(String key,String value){values.put(key,value);}
+            public void remove(String key){values.remove(key);}
+            public java.util.Set<String> keys(){return new java.util.HashSet<>(values.keySet());}
+        };
     }
     public static void main(String[] args) throws Exception {
         List<AutomationEngine.Node> nodes=new ArrayList<>();
@@ -44,6 +54,14 @@ public class JsonChecks {
         rejects(response(result(),"length"),q,"truncated response");
         rejects("{\"choices\":[]}",q,"empty choices");
         rejects("not json",q,"invalid JSON");
+        DeepSeekClient.Answer guess=DeepSeekClient.parse(response(result().put("answerable",false).put("confidence","low"),"stop"),q,true);
+        expect(guess.label.equals("B") && guess.uncertain && guess.reason.startsWith("推测"),"authorized uncertain candidate is returned and labelled honestly");
+        expect(DeepSeekClient.parse(response(result().put("confidence","medium"),"stop"),q,true).uncertain,"medium confidence can proceed under automatic mode");
+        expect(!DeepSeekClient.parse(response(result(),"stop"),q,true).uncertain,"high-confidence answer retains normal source");
+        boolean invalidGuess=false;try{DeepSeekClient.parse(response(result().put("answers",new JSONArray()),"stop"),q,true);}catch(Exception e){invalidGuess=true;}
+        expect(invalidGuess,"automatic mode still requires an actual existing option");
+        invalidGuess=false;try{DeepSeekClient.parse(response(result().put("answers",new JSONArray().put("Z")),"stop"),q,true);}catch(Exception e){invalidGuess=true;}
+        expect(invalidGuess,"automatic mode rejects nonexistent option");
         String connection=new JSONObject().put("model","deepseek-flash").put("choices",new JSONArray().put(new JSONObject().put("finish_reason","stop").put("message",new JSONObject().put("content","OK")))).toString();
         expect(DeepSeekClient.parseConnection(connection).equals("deepseek-flash"),"connection test requires complete model response");
         boolean badConnection=false;try{DeepSeekClient.parseConnection(connection.replace("\"OK\"","null"));}catch(Exception e){badConnection=true;}
@@ -75,6 +93,27 @@ public class JsonChecks {
         q.options.get(0).text="错";q.options.get(1).text="对";
         expect(cache.find("Course C",q).label.equals("A"),"chapter true false remaps by answer text when order reverses");
         cache.reject("Course C",q,"A");expect(cache.find("Course C",q)==null,"wrong chapter answer is invalidated persistently");
+        final java.util.Map<String,String> historyRecords=new java.util.HashMap<>();QuizCache.Storage hs=memory(historyRecords);
+        StudyHistory history=new StudyHistory(hs);q.number="1";
+        history.observe("Course A","3.10 Example");history.answer("Course A","3.10 Example",q,new DeepSeekClient.Answer("A","missing video",true),"DeepSeek 推测");
+        JSONObject pending=new StudyHistory(hs).records().get(0);
+        expect(!pending.has("score") && pending.optString("status").equals("测验作答中"),"guess has no fabricated course score");
+        JSONObject answer=pending.getJSONObject("questions").getJSONObject("chapter:"+QuizKey.question(q));
+        expect(answer.getBoolean("uncertain") && answer.getString("answer_text").equals("错"),"answer text and uncertainty persist across history instances");
+        history.submitted("Course A","3.10 Example");
+        expect(history.records().get(0).optString("status").contains("等待判分"),"submitted chapter stays ungraded until result arrives");
+        ChapterResult platform=new ChapterResult();platform.chapter="3.10 Example";platform.score="75";
+        ChapterResult.Entry entry=new ChapterResult.Entry();entry.question=q;entry.answer="A";entry.wrong=true;entry.score="0.0";platform.entries.add(entry);
+        history.result("Course A",platform);JSONObject graded=history.records().get(0);
+        expect(graded.optString("score").equals("75") && graded.optString("status").equals("测验已完成"),"official platform score is saved as chapter grade");
+        answer=graded.getJSONObject("questions").getJSONObject("chapter:"+QuizKey.question(q));
+        expect(answer.optString("state").equals("答错") && answer.optString("score").equals("0.0") && answer.optBoolean("uncertain"),"wrong question score updates without losing original guess label");
+        history.result("Course A",platform);expect(history.records().size()==1,"revisiting result updates same chapter rather than duplicating it");
+        history.observe("Course A","3.2 Earlier");history.observe("Course B","3.2 Earlier");
+        expect(history.records().size()==3 && history.records().get(0).optString("chapter").equals("3.2 Earlier"),"chapter list uses natural numeric order within each course");
+        expect(history.records().get(2).optString("course").equals("Course B"),"same chapter in different courses stays separate");
+        history.observe("","Unknown");expect(history.records().size()==3,"unknown course does not create shared history group");
+        historyRecords.put("damaged","not json");expect(new StudyHistory(hs).records().size()==3,"damaged history record ignored");
         System.out.println("PASS: "+checks+" Android JSON and cache checks (no API requests)");
     }
 }

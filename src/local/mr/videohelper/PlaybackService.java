@@ -126,6 +126,10 @@ public final class PlaybackService extends AccessibilityService {
             AutomationEngine.Config c = config();
             String chapterName="";
             for(AutomationEngine.Node n:snapshot)if(n.visible() && n.id.equals("com.chaoxing.mobile:id/tv_chapter_name"))chapterName=n.text;
+            if(!chapterName.isEmpty()) {
+                p.edit().putString("active_chapter",chapterName).apply();
+                AppState.history(this).observe(p.getString("course_name",""),chapterName);
+            }
             String doneKey=p.getString("course_name","")+":"+chapterName;
             if(doneKey.equals(p.getString("chapter_quiz_done","")))c.chapterQuiz=false;
             if(!chapterName.isEmpty() && !chapterRun.chapter.isEmpty() && !chapterName.equals(chapterRun.chapter)) {
@@ -222,6 +226,8 @@ public final class PlaybackService extends AccessibilityService {
     }
     private void completed(AutomationEngine.Action a, AutomationEngine.Config c) {
         chapterRun.performed(a,SystemClock.elapsedRealtime());
+        if(a.kind.equals("chapter_submit"))AppState.history(this).submitted(AppState.prefs(this).getString("course_name",""),chapterRun.chapter);
+        if(a.kind.equals("quiz_submit") && quizQuestion!=null)AppState.history(this).videoResult(quizCourse,historyChapter(),quizQuestion,"已提交，等待续播");
         if (a.kind.equals("quiz_select")) quizSelected=true;
         if (a.kind.equals("quiz_submit")) {
             quizSubmittedAt=SystemClock.elapsedRealtime();
@@ -239,6 +245,7 @@ public final class PlaybackService extends AccessibilityService {
         if (++gestureFailures >= 3) stopWith("屏幕操作未成功，请重新启用服务后再试");
     }
     private void stopWith(String message) {
+        if(!chapterRun.chapter.isEmpty())AppState.history(this).status(AppState.prefs(this).getString("course_name",""),chapterRun.chapter,"已暂停："+message);
         cancelQuizWork();
         AppState.prefs(this).edit().putBoolean("running", false).putString("status", message).apply();
         AppState.log(this, message); refreshNotification();
@@ -269,9 +276,10 @@ public final class PlaybackService extends AccessibilityService {
     }
     private void cacheChapterResult(List<AutomationEngine.Node> nodes) {
         SharedPreferences p=AppState.prefs(this);
-        if(!p.getBoolean("cache_enabled",true) || !p.getBoolean("chapter_quiz_enabled",true))return;
         String course=p.getString("course_name","");if(course.isEmpty())return;
-        ChapterResult result=ChapterResult.read(nodes);if(result==null || result.entries.isEmpty())return;
+        ChapterResult result=ChapterResult.read(nodes);if(result==null)return;
+        AppState.history(this).result(course,result);
+        if(!p.getBoolean("cache_enabled",true) || !p.getBoolean("chapter_quiz_enabled",true) || result.entries.isEmpty())return;
         StringBuilder identity=new StringBuilder(course).append(result.chapter).append(result.score);
         for(ChapterResult.Entry e:result.entries)identity.append(QuizKey.question(e.question)).append(e.answer).append(e.correctAnswer).append(e.correct).append(e.wrong);
         String hash=QuizKey.hash(identity.toString());if(hash.equals(p.getString("chapter_result_cached","")))return;
@@ -288,6 +296,7 @@ public final class PlaybackService extends AccessibilityService {
     private void acceptQuizAnswer() {
         if(quizQuestion==null || quizAnswer==null || quizAccepted)return;
         quizAccepted=true;
+        AppState.history(this).videoResult(quizCourse,historyChapter(),quizQuestion,"平台接受并续播（无分数）");
         if(AppState.prefs(this).getBoolean("cache_enabled",true) && !quizCourse.isEmpty()) {
             AppState.cache(this).accept(quizCourse,quizQuestion,quizAnswer.label);
             AppState.log(this,"已通过弹题，答案已保存到本课程缓存（"+quizAnswer.label+"）");
@@ -296,6 +305,7 @@ public final class PlaybackService extends AccessibilityService {
     private String rejectQuizAnswer() {
         if(quizQuestion==null || quizAnswer==null)return "弹题反馈无法关联到答案，请检查";
         AppState.cache(this).reject(quizCourse,quizQuestion,quizAnswer.label);
+        AppState.history(this).videoResult(quizCourse,historyChapter(),quizQuestion,"平台判错");
         String rejectedText=QuizKey.normalize(quizQuestion.option(quizAnswer.label).text);
         if(!quizRejected.contains(rejectedText))quizRejected.add(rejectedText);
         if(++quizCorrections>2)return "同一道弹题已纠错两次，仍未通过，请检查题目";
@@ -325,6 +335,7 @@ public final class PlaybackService extends AccessibilityService {
     }
     private AutomationEngine.Action quizWait(String message) { return new AutomationEngine.Action("wait",message); }
     private AutomationEngine.Action quizStop(String message) { return new AutomationEngine.Action("stop",message); }
+    private String historyChapter(){return AppState.prefs(this).getString("active_chapter",engine.playingChapter);}
     private AutomationEngine.Action chapterAction(ChapterQuiz page,List<AutomationEngine.Node> nodes,String doneKey) {
         if(page==null)return quizWait("等待章节测验网页");
         AutomationEngine.Action action=chapterRun.plan(page,nodes,SystemClock.elapsedRealtime());
@@ -339,10 +350,10 @@ public final class PlaybackService extends AccessibilityService {
         String course=p.getString("course_name","");
         if(p.getBoolean("cache_enabled",true)) {
             DeepSeekClient.Answer cached=AppState.cache(this).find(course,q);
-            if(cached!=null){chapterRun.answer(q,cached);AppState.log(this,"命中章节测验课程缓存，第 "+q.number+" 题："+cached.label+"，不调用 API");return quizWait("已读取测验缓存，准备选择");}
+            if(cached!=null){chapterRun.answer(q,cached);AppState.history(this).answer(course,page.chapter,q,cached,"课程缓存");AppState.log(this,"命中章节测验课程缓存，第 "+q.number+" 题："+cached.label+"，不调用 API");return quizWait("已读取测验缓存，准备选择");}
         }
         if(!KeyVault.exists(this))return quizStop("章节测验需要先保存 DeepSeek API Key");
-        int count=p.getInt("quiz_requests",0);if(count>=20)return quizStop("本次自动 API 请求已达到二十次，请检查后重新开始");
+        int count=p.getInt("quiz_requests",0);if(count>=AppState.API_LIMIT)return quizStop("本次自动 API 请求已达到 "+AppState.API_LIMIT+" 次，请检查后重新开始");
         final String key;
         try{key=KeyVault.read(this);}catch(Exception e){return quizStop("无法读取本机 API Key，请重新保存");}
         String model=p.getString("quiz_model","deepseek-flash");
@@ -367,6 +378,7 @@ public final class PlaybackService extends AccessibilityService {
                 if(generation!=quizGeneration || chapterRun!=target || AppState.prefs(this).getLong("session",0)!=requestSession || !AppState.prefs(this).getBoolean("running",false))return;
                 chapterClient=null;target.busy=false;
                 if(problem!=null){stopWith(problem);return;}
+                AppState.history(this).answer(course,page.chapter,q,value,value.uncertain?"DeepSeek 推测":"DeepSeek");
                 target.answer(q,value);AppState.log(this,"DeepSeek 测验第 "+q.number+" 题建议 "+value.label+"："+value.reason);
                 handler.removeCallbacks(loop);handler.post(loop);
             });
@@ -407,12 +419,13 @@ public final class PlaybackService extends AccessibilityService {
             if(quizCorrections==0 && p.getBoolean("cache_enabled",true)) {
                 quizAnswer=AppState.cache(this).find(quizCourse,q);
                 if(quizAnswer!=null) {
+                    AppState.history(this).answer(quizCourse,historyChapter(),q,quizAnswer,"课程缓存");
                     quizFromCache=true;AppState.log(this,"命中本课程答案缓存："+quizAnswer.label+"，不调用 API");
                     return quizWait("已读取本课程缓存，准备自动选择");
                 }
             }
             int count=p.getInt("quiz_requests",0);
-            if(count>=20) return quizStop("本次已调用二十道弹题，请检查后重新开始");
+            if(count>=AppState.API_LIMIT) return quizStop("本次自动 API 请求已达到 "+AppState.API_LIMIT+" 次，请检查后重新开始");
             final String key;
             try{key=KeyVault.read(this);}catch(Exception e){return quizStop("无法读取本机 API Key，请在设置中重新保存");}
             String model=p.getString("quiz_model","deepseek-flash");
@@ -438,6 +451,7 @@ public final class PlaybackService extends AccessibilityService {
                     handler.removeCallbacks(quizTimeout);quizRequestBusy=false;quizClient=null;
                     if(problem!=null){stopWith(problem);return;}
                     quizAnswer=value;
+                    AppState.history(PlaybackService.this).answer(quizCourse,historyChapter(),q,value,value.uncertain?"DeepSeek 推测":"DeepSeek");
                     AppState.log(PlaybackService.this,"DeepSeek 建议 "+value.label+"："+value.reason);
                     handler.removeCallbacks(loop);handler.post(loop);
                 });

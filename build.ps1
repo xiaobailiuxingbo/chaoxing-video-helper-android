@@ -28,7 +28,7 @@ $compiledRes=Join-Path $run 'resources.zip'
 & (Join-Path $buildTools 'aapt2.exe') compile --dir (Join-Path $PSScriptRoot 'res') -o $compiledRes
 Check-Exit 'aapt2 compile'
 $baseApk=Join-Path $run 'base.apk'
-& (Join-Path $buildTools 'aapt2.exe') link -o $baseApk -I $androidJar --manifest (Join-Path $PSScriptRoot 'AndroidManifest.xml') --min-sdk-version 26 --target-sdk-version 35 --version-code 6 --version-name '1.3.0' $compiledRes
+& (Join-Path $buildTools 'aapt2.exe') link -o $baseApk -I $androidJar --manifest (Join-Path $PSScriptRoot 'AndroidManifest.xml') --min-sdk-version 26 --target-sdk-version 35 --version-code 7 --version-name '1.4.0' $compiledRes
 Check-Exit 'aapt2 link'
 $classesJar=Join-Path $run 'classes.jar'
 & $jar --create --file $classesJar -C $classes .
