@@ -14,7 +14,7 @@ New-Item -ItemType Directory -Path $classes,$dex -Force | Out-Null
 function Check-Exit([string]$Stage){if($LASTEXITCODE -ne 0){throw "$Stage failed"}}
 $androidJar=Join-Path $SdkRoot 'platforms\android-35\android.jar'
 $source=Join-Path $PSScriptRoot 'src\local\mr\videohelper'
-& javac -encoding UTF-8 -source 8 -target 8 -cp $androidJar -d $classes (Join-Path $source 'AutomationEngine.java') (Join-Path $source 'ChapterQuiz.java') (Join-Path $source 'ChapterResult.java') (Join-Path $source 'VideoQuiz.java') (Join-Path $source 'DeepSeekClient.java') (Join-Path $source 'QuizKey.java') (Join-Path $source 'QuizCache.java') (Join-Path $source 'StudyHistory.java') (Join-Path $PSScriptRoot 'test\JsonChecks.java')
+& javac -encoding UTF-8 -source 8 -target 8 -cp $androidJar -d $classes (Join-Path $source 'AutomationEngine.java') (Join-Path $source 'ChapterQuiz.java') (Join-Path $source 'ChapterResult.java') (Join-Path $source 'VideoQuiz.java') (Join-Path $source 'DeepSeekClient.java') (Join-Path $source 'ChoiceAnswer.java') (Join-Path $source 'QuizKey.java') (Join-Path $source 'QuizCache.java') (Join-Path $source 'StudyHistory.java') (Join-Path $PSScriptRoot 'test\JsonChecks.java')
 Check-Exit 'javac'
 $inputJar=Join-Path $run 'checks.jar'
 & jar --create --file $inputJar -C $classes .

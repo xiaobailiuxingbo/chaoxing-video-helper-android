@@ -131,7 +131,7 @@ public final class MainActivity extends Activity {
         Button ai=button("DeepSeek · 弹题与测验设置",false);add(options,ai,14);
         ai.setTag("ai_settings");
         ai.setOnClickListener(v->showAiSettings());
-        add(options,text("支持视频文字单选弹题、章节测验文字单选和判断题。不确定时也选最可能答案并提交，在记录中标记“推测”；无法读取或返回无效选项时暂停。",12,muted,false),8);
+        add(options,text("支持视频文字单选弹题、章节测验文字单选、多选和判断题。不确定时也选最可能答案并提交，在记录中标记“推测”；无法读取或返回无效选项时暂停。",12,muted,false),8);
 
         LinearLayout history = card(page); add(history, text("最近操作", 17, ink, true), 0);
         log = text("尚无记录", 12, muted, false); add(history, log, 10);
@@ -164,7 +164,7 @@ public final class MainActivity extends Activity {
             AppState.cache(this).clear(name);Toast.makeText(this,"已清除该课程缓存",Toast.LENGTH_SHORT).show();render();});
         CheckBox enabled=new CheckBox(this);enabled.setText("启用 AI 自动选择与提交");enabled.setTextColor(ink);
         enabled.setChecked(p.getBoolean("quiz_enabled",false));add(form,enabled,12);
-        CheckBox chapterEnabled=new CheckBox(this);chapterEnabled.setText("同时处理章节测验（单选、判断）");chapterEnabled.setTextColor(ink);chapterEnabled.setTag("chapter_quiz_enabled");
+        CheckBox chapterEnabled=new CheckBox(this);chapterEnabled.setText("同时处理章节测验（单选、多选、判断）");chapterEnabled.setTextColor(ink);chapterEnabled.setTag("chapter_quiz_enabled");
         chapterEnabled.setChecked(p.getBoolean("chapter_quiz_enabled",true));add(form,chapterEnabled,8);
         add(form,text("优先使用本课程缓存，按选项文字匹配。弹题明确判错最多纠错两次；测验从结果页保存已确认正确的答案、作废错误选项。不确定时按最可能选项自动提交并标记推测；每次开始共用 100 次自动 API 请求上限。保存后需点击“开始辅助”。",12,muted,false),8);
         AlertDialog dialog=new AlertDialog.Builder(this).setTitle("DeepSeek 弹题与测验")

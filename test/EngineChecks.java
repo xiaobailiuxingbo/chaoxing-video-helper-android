@@ -7,6 +7,7 @@ import local.mr.videohelper.ChapterQuiz;
 import local.mr.videohelper.ChapterRun;
 import local.mr.videohelper.DeepSeekClient;
 import local.mr.videohelper.ChapterResult;
+import local.mr.videohelper.ChoiceAnswer;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
@@ -220,8 +221,37 @@ public class EngineChecks {
         List<AutomationEngine.Node> confirm=list(n("确定要提交当前作业吗？","com.chaoxing.mobile:id/tvMessage","[100,100][1000,600]"),n("确定","com.chaoxing.mobile:id/btnOk","[600,600][1000,800]"));
         expect(ChapterRun.confirmation(confirm)!=null,"known submit confirmation accepted");confirm.get(0).text="是否删除课程？";
         expect(ChapterRun.confirmation(confirm)==null,"unrelated confirmation never accepted");
-        chapterNodes=quizFixture(args[0]+"/chapter-quiz.txt");chapterNodes.get(93).text="[多选题]";
-        expect(!ChapterQuiz.read(chapterNodes).error.isEmpty(),"unsupported test type blocks entire submission");
+        chapterNodes=quizFixture(args[0]+"/chapter-quiz.txt");chapterNodes.get(93).text="[简答题]";
+        ChapterQuiz mixed=ChapterQuiz.read(chapterNodes);
+        expect(mixed.error.isEmpty() && mixed.questions.size()==3 && mixed.unsupported.contains("第 1 题（简答题）"),"unsupported type reports its real number without blocking readable choices");
+        ChapterRun mixedRun=new ChapterRun();
+        for(VideoQuiz question:mixed.questions){mixedRun.answer(question,new DeepSeekClient.Answer("A","test"));for(VideoQuiz.Option option:question.options){option.visible=true;option.y=1500;}}
+        for(int i=0;i<3;i++){a=mixedRun.plan(mixed,chapterNodes,NOW+i*1000);expect(a.kind.equals("chapter_select"),"supported part of mixed form proceeds "+i);mixedRun.performed(a,NOW+i*1000);}
+        a=mixedRun.plan(mixed,chapterNodes,NOW+4000);expect(a.kind.equals("stop") && a.message.contains("第 1 题（简答题）") && a.message.contains("尚未提交"),"mixed form never submits with unsupported questions missing");
+        chapterNodes=quizFixture(args[0]+"/chapter-quiz.txt");chapterNodes.get(93).text="［ 单选题 ］";
+        expect(ChapterQuiz.read(chapterNodes).error.isEmpty() && ChapterQuiz.read(chapterNodes).questions.get(0).type.equals("单选题"),"fullwidth brackets and spacing do not misclassify single choice");
+        chapterNodes=quizFixture(args[0]+"/chapter-quiz.txt");chapterNodes.get(138).text="[多选题]";
+        ChapterQuiz multi=ChapterQuiz.read(chapterNodes);
+        expect(multi.error.isEmpty() && multi.questions.size()==4 && ChoiceAnswer.multiple(multi.questions.get(3)),"offscreen multiple-choice header is supported rather than blaming visible single choice");
+        VideoQuiz multiQuestion=multi.questions.get(3);ChapterRun multiRun=new ChapterRun();
+        for(VideoQuiz question:multi.questions){multiRun.answer(question,new DeepSeekClient.Answer(ChoiceAnswer.multiple(question)?"AB":"A","test"));for(VideoQuiz.Option option:question.options){option.visible=true;option.y=1500;}}
+        multi.submit.top=2300;multi.submit.bottom=2420;multi.submit.onScreen=true;
+        for(int i=0;i<3;i++){a=multiRun.plan(multi,chapterNodes,NOW+i*1000);multiRun.performed(a,NOW+i*1000);}
+        a=multiRun.plan(multi,chapterNodes,NOW+4000);expect(a.kind.equals("chapter_select") && a.message.endsWith("A"),"multi selects first required label");multiRun.performed(a,NOW+4000);
+        a=multiRun.plan(multi,chapterNodes,NOW+5000);expect(a.kind.equals("chapter_select") && a.message.endsWith("B"),"multi selects next label without toggling the first off");multiRun.performed(a,NOW+5000);
+        expect(multiRun.plan(multi,chapterNodes,NOW+6000).kind.equals("chapter_submit"),"all multiple-choice labels selected before submission");
+        ChapterRun resumed=new ChapterRun();resumed.restore(multiQuestion,"AB");
+        for(VideoQuiz question:multi.questions)resumed.answer(question,new DeepSeekClient.Answer(ChoiceAnswer.multiple(question)?"A":"A","test"));
+        for(int i=0;i<3;i++){a=resumed.plan(multi,chapterNodes,NOW+i*1000);resumed.performed(a,NOW+i*1000);}
+        a=resumed.plan(multi,chapterNodes,NOW+4000);expect(a.kind.equals("chapter_select") && a.message.startsWith("取消") && a.message.endsWith("B"),"resumed selection removes stale label when candidate combination changes");resumed.performed(a,NOW+4000);
+        expect(resumed.selection(multiQuestion).equals("A") && resumed.plan(multi,chapterNodes,NOW+5000).kind.equals("chapter_submit"),"restored partial selection avoids duplicate toggles and completes");
+        ChapterRun checkedRun=new ChapterRun();
+        for(VideoQuiz question:multi.questions)checkedRun.answer(question,new DeepSeekClient.Answer(ChoiceAnswer.multiple(question)?"AB":"A","test"));
+        for(int i=0;i<3;i++){a=checkedRun.plan(multi,chapterNodes,NOW+i*1000);checkedRun.performed(a,NOW+i*1000);}
+        multiQuestion.option("A").selectionKnown=true;multiQuestion.option("A").checked=true;
+        multiQuestion.option("B").selectionKnown=true;multiQuestion.option("B").checked=false;
+        a=checkedRun.plan(multi,chapterNodes,NOW+4000);expect(a.kind.equals("chapter_select") && a.message.endsWith("B"),"accessible preselected checkbox is not toggled off");checkedRun.performed(a,NOW+4000);
+        multiQuestion.option("B").checked=true;expect(checkedRun.plan(multi,chapterNodes,NOW+5000).kind.equals("chapter_submit"),"accessible checked state confirms complete combination before submit");
         chapterNodes=quizFixture(args[0]+"/chapter-quiz.txt");chapterNodes.get(101).type="android.widget.ImageView";
         expect(!ChapterQuiz.read(chapterNodes).error.isEmpty(),"media options cannot be silently omitted");
         List<AutomationEngine.Node> resultNodes=quizFixture(args[0]+"/chapter-result.txt");
@@ -238,6 +268,15 @@ public class EngineChecks {
         for(AutomationEngine.Node node:resultNodes)if(node.text.equals("得分：25.0分")){node.text="得分：0.0分";break;}
         expect(ChapterResult.read(resultNodes).entries.get(0).wrong,"explicit zero score invalidates the submitted choice");
         expect(ChapterResult.read(quizFixture(args[0]+"/chapter-quiz.txt"))==null,"an unsubmitted form cannot populate correct answer cache");
+        resultNodes=quizFixture(args[0]+"/chapter-result.txt");resultNodes.get(90).text="[多选题]";resultNodes.get(101).text="我的答案：D，B";
+        ChapterResult multiResult=ChapterResult.read(resultNodes);
+        expect(multiResult.entries.size()==4 && multiResult.entries.get(0).answer.equals("BD") && multiResult.entries.get(0).correct,"platform multi result reads all labels despite separators and order");
+        chapterNodes=quizFixture(args[0]+"/chapter-quiz.txt");chapterNodes.get(93).text="[多选题]";
+        expect(QuizKey.question(multiResult.entries.get(0).question).equals(QuizKey.question(ChapterQuiz.read(chapterNodes).questions.get(0))),"multi result has same cache identity as editable question");
+        ChapterQuiz liveMixed=ChapterQuiz.read(quizFixture(args[0]+"/chapter-mixed-types.txt"));
+        expect(liveMixed.error.isEmpty() && liveMixed.unsupported.isEmpty() && liveMixed.questions.size()==5,"observed mixed layout now reads all three single and two multiple choice questions");
+        expect(liveMixed.questions.get(1).option("C").text.equals("丙二"),"nested option text in observed layout remains intact");
+        expect(liveMixed.questions.get(3).type.equals("多选题") && liveMixed.questions.get(4).type.equals("多选题"),"offscreen multi questions do not become a visible single-choice error");
         AutomationEngine.Action unsaved=new AutomationEngine().plan(list(n("本节测验还未提交，请先保存或提交","com.chaoxing.mobile:id/tvMessage","[100,100][1000,600]")),c,NOW);
         expect(unsaved.kind.equals("stop") && unsaved.message.contains("尚未保存或提交"),"real unsaved-test block is distinguished from a missing next button");
         System.out.println("PASS: "+checks+" Android UI decision checks");

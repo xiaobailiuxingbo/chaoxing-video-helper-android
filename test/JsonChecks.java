@@ -5,6 +5,7 @@ import local.mr.videohelper.QuizCache;
 import local.mr.videohelper.QuizKey;
 import local.mr.videohelper.StudyHistory;
 import local.mr.videohelper.ChapterResult;
+import local.mr.videohelper.ChoiceAnswer;
 import org.json.JSONObject;
 import org.json.JSONArray;
 import java.util.ArrayList;
@@ -114,6 +115,22 @@ public class JsonChecks {
         expect(history.records().get(2).optString("course").equals("Course B"),"same chapter in different courses stays separate");
         history.observe("","Unknown");expect(history.records().size()==3,"unknown course does not create shared history group");
         historyRecords.put("damaged","not json");expect(new StudyHistory(hs).records().size()==3,"damaged history record ignored");
+        q.context="chapter";q.type="多选题";
+        DeepSeekClient.Answer combination=DeepSeekClient.parse(response(result().put("answers",new JSONArray().put("B").put("A")),"stop"),q,true);
+        expect(combination.label.equals("AB"),"multiple-choice array accepts and canonicalizes complete combination");
+        boolean duplicate=false;try{DeepSeekClient.parse(response(result().put("answers",new JSONArray().put("A").put("A")),"stop"),q,true);}catch(Exception e){duplicate=true;}
+        expect(duplicate,"repeated multi labels rejected");
+        duplicate=false;try{DeepSeekClient.parse(response(result().put("answers",new JSONArray().put("AB")),"stop"),q,true);}catch(Exception e){duplicate=true;}
+        expect(duplicate,"model must return separate valid labels rather than a concatenated element");
+        cache.accept("Multi course",q,"AB");expect(cache.find("Multi course",q).label.equals("AB"),"complete multi answer combination persists");
+        cache.reject("Multi course",q,"AB");expect(cache.find("Multi course",q)==null,"wrong whole combination invalidated");
+        cache.accept("Multi course",q,"A");expect(cache.find("Multi course",q).label.equals("A"),"rejecting a combination does not exclude each constituent choice");
+        String oldA=q.options.get(0).text;q.options.get(0).text=q.options.get(1).text;q.options.get(1).text=oldA;
+        expect(cache.find("Multi course",q).label.equals("B"),"multi cache maps stored option texts after reordering");
+        expect(new JSONArray(ChoiceAnswer.key(q,"AB")).length()==2,"rejected combination text key remains parseable JSON for model input");
+        history.answer("Multi history","1.1 Example",q,combination,"DeepSeek");JSONObject multiHistory=history.records().get(history.records().size()-1);
+        JSONObject storedMulti=multiHistory.getJSONObject("questions").getJSONObject("chapter:"+QuizKey.question(q));
+        expect(storedMulti.optString("answer").equals("AB") && storedMulti.optString("answer_text").contains("；"),"history stores all selected labels and option texts");
         System.out.println("PASS: "+checks+" Android JSON and cache checks (no API requests)");
     }
 }

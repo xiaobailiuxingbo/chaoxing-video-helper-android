@@ -5,7 +5,7 @@ import java.util.List;
 
 /** Reads only the selected chapter-test tab, including offscreen text for scrolling. */
 public final class ChapterQuiz {
-    public String chapter="", error="";
+    public String chapter="", error="", unsupported="";
     public AutomationEngine.Node web, submit;
     public boolean completed;
     public final List<VideoQuiz> questions=new ArrayList<>();
@@ -49,8 +49,8 @@ public final class ChapterQuiz {
         List<AutomationEngine.Node> children=descendants(form,nodes);
         for(AutomationEngine.Node n:children)if(n.text.equals("提交") && n.type.equals("android.widget.Button"))page.submit=n;
         for(AutomationEngine.Node header:children) {
-            if(!header.text.matches("[\\[【](单选题|多选题|判断题|填空题|简答题)[\\]】]"))continue;
-            VideoQuiz q=new VideoQuiz();q.context="chapter";q.type=header.text.replaceAll("[\\[\\]【】]","");
+            String type=typeOf(header.text);if(type.isEmpty())continue;
+            VideoQuiz q=new VideoQuiz();q.context="chapter";q.type=type;
             AutomationEngine.Node title=header.parentIndex>=0?nodes.get(header.parentIndex):null;
             if(title==null)return page.fail("测验题目分组无法确认");
             for(AutomationEngine.Node n:children)if(n.parentIndex==title.index && n.text.matches("[0-9]+[.、．]"))q.number=n.text.replaceAll("[^0-9]","");
@@ -61,6 +61,11 @@ public final class ChapterQuiz {
                 if(!n.text.trim().isEmpty()){if(stem.length()>0)stem.append('\n');stem.append(n.text.trim());}
             }
             q.stem=stem.toString();
+            if(!(q.type.equals("单选题") || q.type.equals("判断题") || q.type.equals("多选题"))) {
+                if(!page.unsupported.isEmpty())page.unsupported+="；";
+                page.unsupported+="第 "+(q.number.isEmpty()?"未知":q.number)+" 题（"+q.type+"）";
+                continue;
+            }
             AutomationEngine.Node options=null;
             for(AutomationEngine.Node n:children)if(n.parentIndex==form.index && n.index>title.index && n.type.equals("android.widget.ListView")){options=n;break;}
             if(options==null || q.number.isEmpty() || q.stem.length()<3 || q.stem.length()>6000)return page.fail("测验题干或选项不完整");
@@ -74,20 +79,27 @@ public final class ChapterQuiz {
                 if(label==null || text.length()==0 || text.length()>3000)return page.fail("测验选项内容无法完整读取");
                 VideoQuiz.Option option=new VideoQuiz.Option(label.text,text.toString(),(label.left+label.right)/2,(label.top+label.bottom)/2);
                 option.node=label;option.visible=label.visible() && label.bottom-label.top>=35 && label.top>=page.web.top+12 && label.bottom<=page.web.bottom-12;
+                option.selectionKnown=label.checkable || row.checkable || label.checked || row.checked || label.selected || row.selected;
+                option.checked=label.checked || row.checked || label.selected || row.selected;
                 q.options.add(option);
             }
-            if(!(q.type.equals("单选题") || q.type.equals("判断题")))return page.fail("章节测验暂支持文字单选和判断题，当前题型请本人处理");
             if(q.options.size()<2 || q.options.size()>8 || (q.type.equals("判断题") && q.options.size()!=2))return page.fail("测验选项数量不完整");
             for(int i=0;i<q.options.size();i++)if(!q.options.get(i).label.equals(String.valueOf((char)('A'+i))))return page.fail("测验选项编号不连续");
             StringBuilder identity=new StringBuilder(q.context).append(q.type).append(q.stem);
             for(VideoQuiz.Option o:q.options)identity.append('\n').append(o.label).append(':').append(o.text);
             q.fingerprint=QuizKey.hash(identity.toString());page.questions.add(q);
         }
-        if(page.questions.isEmpty())return page.fail("未读取到章节测验题目");
+        if(page.questions.isEmpty())return page.fail(page.unsupported.isEmpty()?"未读取到章节测验题目":page.unsupportedMessage());
         java.util.Set<String> numbers=new java.util.HashSet<>();
         for(VideoQuiz q:page.questions)if(!numbers.add(q.number))return page.fail("测验题号重复，请检查页面");
         if(page.submit==null)return page.fail("没有读取到章节测验提交按钮");
         return page;
     }
     private ChapterQuiz fail(String value){error=value;return this;}
+    public String unsupportedMessage(){return "已处理可识别的选择、判断题；本份测验仍有 "+unsupported+" 暂不支持，整份测验尚未提交";}
+    public static String typeOf(String text) {
+        String s=java.text.Normalizer.normalize(text==null?"":text,java.text.Normalizer.Form.NFKC).replaceAll("\\s+","");
+        if(!s.matches("[\\[【][^\\[\\]【】]{1,16}题[\\]】]"))return "";
+        return s.substring(1,s.length()-1);
+    }
 }

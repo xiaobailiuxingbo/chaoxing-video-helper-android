@@ -34,6 +34,7 @@ public final class PlaybackService extends AccessibilityService {
     private DeepSeekClient quizClient;
     private DeepSeekClient chapterClient;
     private ChapterRun chapterRun=new ChapterRun();
+    private int chapterWindow;
     private DeepSeekClient.Answer quizAnswer;
     private String quizFingerprint = "";
     private long quizStableAt, quizSubmittedAt, quizGeneration;
@@ -120,6 +121,7 @@ public final class PlaybackService extends AccessibilityService {
         List<AccessibilityNodeInfo> live = new ArrayList<>();
         List<AutomationEngine.Node> snapshot = new ArrayList<>();
         try {
+            chapterWindow=root.getWindowId();
             collect(root, live, snapshot);
             observeCourse(snapshot);
             cacheChapterResult(snapshot);
@@ -216,6 +218,7 @@ public final class PlaybackService extends AccessibilityService {
         item.pkg = n.getPackageName() == null ? "" : n.getPackageName().toString();
         item.clickable = n.isClickable(); item.checked = n.isChecked(); item.checkable = n.isCheckable(); item.selected = n.isSelected();
         item.onScreen = n.isVisibleToUser();
+        item.accessibilityHash=n.hashCode();
         Rect r = new Rect(); n.getBoundsInScreen(r);
         item.left = r.left; item.top = r.top; item.right = r.right; item.bottom = r.bottom;
         live.add(n); result.add(item);
@@ -226,6 +229,9 @@ public final class PlaybackService extends AccessibilityService {
     }
     private void completed(AutomationEngine.Action a, AutomationEngine.Config c) {
         chapterRun.performed(a,SystemClock.elapsedRealtime());
+        if(a.kind.equals("chapter_select") && chapterRun.requested!=null && ChoiceAnswer.multiple(chapterRun.requested)) {
+            VideoQuiz q=chapterRun.requested;AppState.prefs(this).edit().putString("multi_selection_"+QuizKey.hash(chapterRun.scope+q.fingerprint),chapterRun.selection(q)).apply();
+        }
         if(a.kind.equals("chapter_submit"))AppState.history(this).submitted(AppState.prefs(this).getString("course_name",""),chapterRun.chapter);
         if(a.kind.equals("quiz_submit") && quizQuestion!=null)AppState.history(this).videoResult(quizCourse,historyChapter(),quizQuestion,"已提交，等待续播");
         if (a.kind.equals("quiz_select")) quizSelected=true;
@@ -338,6 +344,10 @@ public final class PlaybackService extends AccessibilityService {
     private String historyChapter(){return AppState.prefs(this).getString("active_chapter",engine.playingChapter);}
     private AutomationEngine.Action chapterAction(ChapterQuiz page,List<AutomationEngine.Node> nodes,String doneKey) {
         if(page==null)return quizWait("等待章节测验网页");
+        String courseName=AppState.prefs(this).getString("course_name","");
+        AutomationEngine.Node form=page.web==null?null:ChapterQuiz.scoped(nodes,page.web,"form1");
+        if(form!=null){chapterRun.scope(courseName+"\n"+page.chapter+"\n"+chapterWindow+":"+form.accessibilityHash);
+            for(VideoQuiz q:page.questions)if(ChoiceAnswer.multiple(q))chapterRun.restore(q,AppState.prefs(this).getString("multi_selection_"+QuizKey.hash(chapterRun.scope+q.fingerprint),""));}
         AutomationEngine.Action action=chapterRun.plan(page,nodes,SystemClock.elapsedRealtime());
         if(action.kind.equals("chapter_done")) {
             AppState.prefs(this).edit().putString("chapter_quiz_done",doneKey).apply();

@@ -6,7 +6,7 @@ import java.util.List;
 public final class AutomationEngine {
     public static final class Node {
         public String text = "", desc = "", id = "", type = "", pkg = "";
-        public int left, top, right, bottom, index;
+        public int left, top, right, bottom, index, accessibilityHash;
         public boolean clickable, checked, checkable, selected, onScreen = true;
         public int parentIndex = -1;
         public boolean visible() { return onScreen && right > left && bottom > top; }

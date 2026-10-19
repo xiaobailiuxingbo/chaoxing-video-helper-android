@@ -29,13 +29,14 @@ public final class ChapterResult {
         }
         if(!complete || result.score.isEmpty() || ChapterQuiz.scoped(nodes,web,"form1")!=null)return null;
         List<AutomationEngine.Node> headers=new ArrayList<>();
-        for(AutomationEngine.Node n:content)if(n.text.matches("[\\[【](单选题|判断题)[\\]】]"))headers.add(n);
+        for(AutomationEngine.Node n:content)if(!ChapterQuiz.typeOf(n.text).isEmpty())headers.add(n);
         boolean fullScore;try{fullScore=Double.parseDouble(result.score)==100;}catch(Exception e){return null;}
         for(int i=0;i<headers.size();i++) {
             AutomationEngine.Node header=headers.get(i), title=header.parentIndex>=0?nodes.get(header.parentIndex):null;
             if(title==null)continue;
             int until=i+1<headers.size()?nodes.get(headers.get(i+1).parentIndex).index:Integer.MAX_VALUE;
-            VideoQuiz q=new VideoQuiz();q.context="chapter";q.type=header.text.replaceAll("[\\[\\]【】]","");
+            VideoQuiz q=new VideoQuiz();q.context="chapter";q.type=ChapterQuiz.typeOf(header.text);
+            if(!(q.type.equals("单选题") || q.type.equals("判断题") || q.type.equals("多选题")))continue;
             StringBuilder stem=new StringBuilder();Entry entry=new Entry();entry.question=q;String mine="",correct="";boolean zero=false;
             for(AutomationEngine.Node n:content) {
                 if(n.index<title.index || n.index>=until)continue;
@@ -66,6 +67,7 @@ public final class ChapterResult {
         return result;
     }
     private static String label(VideoQuiz q,String text) {
+        if(ChoiceAnswer.multiple(q))return ChoiceAnswer.labels(q,text.replaceAll("[,，、;；\\s]+",""));
         if(q.option(text)!=null)return text;
         return QuizKey.labelForText(q,text);
     }

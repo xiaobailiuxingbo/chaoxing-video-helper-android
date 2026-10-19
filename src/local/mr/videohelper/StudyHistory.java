@@ -29,14 +29,14 @@ public final class StudyHistory {
         JSONObject record=load(course,chapter);if(record.optString("chapter").isEmpty())status(course,chapter,"尚无测验记录");
     }
     public void answer(String course,String chapter,VideoQuiz q,DeepSeekClient.Answer answer,String source) {
-        if(q.option(answer.label)==null)return;
+        if(ChoiceAnswer.labels(q,answer.label).isEmpty())return;
         JSONObject record=load(course,chapter), questions=record.optJSONObject("questions");if(questions==null)questions=new JSONObject();
         String identity=q.context+":"+QuizKey.question(q);
         JSONObject entry=questions.optJSONObject(identity);if(entry==null)entry=new JSONObject();
         try {
             JSONArray options=new JSONArray();for(VideoQuiz.Option o:q.options)options.put(new JSONObject().put("label",o.label).put("text",o.text));
             entry.put("number",q.number).put("type",q.type).put("context",q.context).put("stem",q.stem).put("options",options)
-                .put("answer",answer.label).put("answer_text",q.option(answer.label).text).put("reason",answer.reason)
+                .put("answer",answer.label).put("answer_text",ChoiceAnswer.display(q,answer.label)).put("reason",answer.reason)
                 .put("uncertain",answer.uncertain).put("source",source).put("state","待提交");
             questions.put(identity,entry);record.put("questions",questions);
             if(q.context.equals("chapter")){record.put("status","测验作答中");record.remove("result_id");}
@@ -68,10 +68,10 @@ public final class StudyHistory {
                 String identity="chapter:"+QuizKey.question(e.question);
                 JSONObject item=questions.optJSONObject(identity);if(item==null)item=new JSONObject();
                 item.put("number",e.question.number).put("context","chapter").put("type",e.question.type).put("stem",e.question.stem)
-                    .put("answer",e.answer).put("answer_text",e.question.option(e.answer).text).put("score",e.score)
+                    .put("answer",e.answer).put("answer_text",ChoiceAnswer.display(e.question,e.answer)).put("score",e.score)
                     .put("state",e.wrong?"答错":e.correct?"正确":"已判分");
                 JSONArray options=new JSONArray();for(VideoQuiz.Option o:e.question.options)options.put(new JSONObject().put("label",o.label).put("text",o.text));item.put("options",options);
-                if(!e.correctAnswer.isEmpty())item.put("correct_text",e.question.option(e.correctAnswer).text);
+                if(!e.correctAnswer.isEmpty())item.put("correct_text",ChoiceAnswer.display(e.question,e.correctAnswer));
                 questions.put(identity,item);
             }
             record.put("questions",questions).put("status","测验已完成").put("score",result.score).put("result_id",resultId);save(course,result.chapter,record);

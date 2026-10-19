@@ -13,6 +13,7 @@ public final class VideoQuiz {
         public int x, y;
         public AutomationEngine.Node node;
         public boolean visible=true;
+        public boolean selectionKnown, checked;
         Option(String label, String text, int x, int y) { this.label=label; this.text=text; this.x=x; this.y=y; }
     }
     public String type="", stem="", fingerprint="", error="", context="video", number="";

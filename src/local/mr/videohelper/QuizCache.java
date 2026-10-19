@@ -30,21 +30,28 @@ public final class QuizCache {
         if(QuizKey.normalize(course).isEmpty())return null;
         JSONObject record=record(key(course,q));String text=record.optString("answer","");
         if(text.isEmpty() || rejected(course,q).contains(QuizKey.normalize(text)))return null;
+        if(ChoiceAnswer.multiple(q)) {
+            JSONArray values=record.optJSONArray("answer_values");if(values==null || values.length()==0)return null;
+            StringBuilder mapped=new StringBuilder();
+            for(int i=0;i<values.length();i++){String label=QuizKey.labelForText(q,values.optString(i,""));if(label.isEmpty())return null;mapped.append(label);}
+            String label=ChoiceAnswer.labels(q,mapped.toString());if(label.isEmpty() || !ChoiceAnswer.key(q,label).equals(text))return null;
+            return new DeepSeekClient.Answer(label,"本课程已确认的多选答案组合缓存");
+        }
         String label=QuizKey.labelForText(q,text);
         return label.isEmpty()?null:new DeepSeekClient.Answer(label,"本课程已通过弹题的本机缓存");
     }
     public void accept(String course,VideoQuiz q,String label) {
-        VideoQuiz.Option option=q.option(label);
-        if(QuizKey.normalize(course).isEmpty() || option==null)return;
-        String text=QuizKey.normalize(option.text);
+        if(QuizKey.normalize(course).isEmpty() || ChoiceAnswer.labels(q,label).isEmpty())return;
+        String text=ChoiceAnswer.key(q,label);
         if(rejected(course,q).contains(text))return;
         String key=key(course,q);JSONObject value=record(key);
-        try{value.put("answer",text).put("updated",System.currentTimeMillis());storage.write(key,value.toString());trim();}catch(Exception ignored){}
+        try{value.put("answer",text).put("updated",System.currentTimeMillis());
+            if(ChoiceAnswer.multiple(q))value.put("answer_values",new JSONArray(ChoiceAnswer.texts(q,label)));
+            storage.write(key,value.toString());trim();}catch(Exception ignored){}
     }
     public void reject(String course,VideoQuiz q,String label) {
-        VideoQuiz.Option option=q.option(label);
-        if(QuizKey.normalize(course).isEmpty() || option==null)return;
-        String key=key(course,q), text=QuizKey.normalize(option.text);JSONObject value=record(key);
+        if(QuizKey.normalize(course).isEmpty() || ChoiceAnswer.labels(q,label).isEmpty())return;
+        String key=key(course,q), text=ChoiceAnswer.key(q,label);JSONObject value=record(key);
         List<String> rejected=rejected(course,q);if(!rejected.contains(text))rejected.add(text);
         try{value.remove("answer");value.put("rejected",new JSONArray(rejected)).put("updated",System.currentTimeMillis());storage.write(key,value.toString());trim();}catch(Exception ignored){}
     }
